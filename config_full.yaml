@@ -1,0 +1,70 @@
+general:
+  backups_path: "/mnt/storage/"
+  ibcmd_path: "/opt/1cv8/x86_64/8.3.24.1548/" #Обязательно после каждого обновления исправлять на новый!
+  log_path: "/home/backup/"
+  1c_stop: true                               #Останавливать службу сервера 1С. (рекомендуется, но не обязательно)
+  time_to_start: "23:00"                      #Время для запуска утилиты
+
+server_settings:
+  dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQL (пусто, если все базы файловые)
+  srv: "localhost"                            #имя или IP адрес
+  dbms_user: "postgres"
+  dbms_password: "secret"
+
+schedule_settings: 
+  daily:
+    delete_older: 20160                       #Сколько минут хранить ежедневные копии
+    maintenance_types:                        #Виды ежедневного обслуживания. Для PostgreSQL - ANALYZE, REINDEX, VACUUM, VACUUM_FULL. Для MSSQL - STATISTICS (UPDATE STATISTICS), INDEXES (REORGANIZE / REBUILD), INTEGRITY (DBCC CHECKDB)
+      - STATISTICS
+  weekly:
+    delete_older: 90                          #Сколько дней хранить еженедельные копии
+    maintenance_types:
+      - STATISTICS
+      - INTEGRITY
+  monthly:
+    delete_older: 365                         #Сколько дней хранить ежемесячные копии
+    maintenance_types:
+      - STATISTICS
+      - INDEXES
+      - INTEGRITY
+
+bases:
+  - mode: "file"
+    dbdir: 'D:\1c\buh'                         #Может быть сетевым
+    user: "1c_username"                        #Оставить пустым если не заданы в БД
+    password: "secret"                         #Оставить пустым если не заданы в БД
+    chkdb: true                                #Выполнять проверку этой БД улилитой chdbfl.exe (только для Windows)
+    validate_restore: false                    #Выполнять проверку резервной копии после выгрузки. Использовать с осторожностью, особенно для больших БД. Требуется значительно больше времени. Программа разворачивает временную пустую базу, восстанввливает данные из резервной копии, проверяет корректность загрузки, затем удаляет временную базу.
+    schedule:                                  #В каких расписаниях участвует эта БД
+      - weekly
+      - monthly
+  - mode: "dbms"
+    dbname: "buh1"
+    user: "1c_username"                        #Оставить пустым если не заданы в БД
+    password: "sevret"                         #Оставить пустым если не заданы в БД
+    chkdb: true                                #Выполнять проверку этой БД средствами СУБД
+    validate_restore: true                     #Выполнять проверку резервной копии после выгрузки. Использовать с осторожностью, особенно для больших БД. Требуется значительно больше времени. Программа разворачивает временную пустую базу, восстанввливает данные из резервной копии, проверяет корректность загрузки, затем удаляет временную базу.
+    schedule:                                  #В каких расписаниях участвует эта БД
+      - daily
+      - weekly
+      - monthly
+
+# Advansed DBMS's settings (optional)
+postgres:
+  jobs: 2
+  vacuum_full:
+    enabled: false
+    min_bloat: 50
+    exclude_tables:
+      - ...
+  statement_timeout: 0
+  lock_timeout: 0
+  idle_in_transaction_session_timeout: 3600000
+
+mssql:
+  index_maintenance:
+    reorganize_from: 10
+    rebuild_from: 30
+    min_pages: 1000
+  checkdb:
+    physical_only: false
