@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Михаил Попов
 // ./maintenance_1C/getconfig/getvalidateconfig.go
 package getconfig
 
