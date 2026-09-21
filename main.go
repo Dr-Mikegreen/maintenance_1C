@@ -6,15 +6,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maintenance1c/getconfig"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
-const version string = "1.0.7"
+const version string = "1.0.9"
 
 var now bool = false
 
@@ -54,73 +56,16 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UlilName)
-		for _, base := range config.Bases {
-			timestamp := time.Now().Format("2006-01-02_15-04-05")
-			backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
-			if base.Mode == "dbms" {
-				ibcmdArgs := []string{
-					"infobase",
-					"dump",
-					"--dbms=" + config.ServerSettings.DBMS,
-					"--db-server=" + config.ServerSettings.Server + " port=" + strconv.Itoa(config.ServerSettings.Port),
-					"--db-user=" + config.ServerSettings.DBMSUser,
-					"--db-pwd=" + config.ServerSettings.DBMSPassword,
-					"--db-name=" + base.DBName,
-				}
-				if base.User != "" {
-					ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-				}
-				if base.Password != "" {
-					ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer cancel()
-				ibcmdArgs = append(ibcmdArgs, backupPathName)
-				cmd := exec.CommandContext(ctx, ibcmdPath, ibcmdArgs...)
-				output, err := cmd.Output()
-				if err != nil {
-					var exitErr *exec.ExitError
-					if errors.As(err, &exitErr) {
-						fmt.Println(string(exitErr.Stderr))
-						continue
-					} else {
-						fmt.Println(err)
-						continue
-					}
-				}
-				fmt.Println(string(output))
-			} else {
-				dbPath := filepath.Join(base.DBDir)
-				ibcmdArgs := []string{
-					"infobase",
-					"dump",
-					"--db-path=" + dbPath,
-				}
-				if base.User != "" {
-					ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-				}
-				if base.Password != "" {
-					ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-				defer cancel()
-				ibcmdArgs = append(ibcmdArgs, backupPathName)
-				cmd := exec.CommandContext(ctx, ibcmdPath, ibcmdArgs...)
-				output, err := cmd.Output()
-				if err != nil {
-					var exitErr *exec.ExitError
-					if errors.As(err, &exitErr) {
-						fmt.Println(string(exitErr.Stderr))
-						continue
-					} else {
-						fmt.Println(err)
-						continue
-					}
-				}
-				fmt.Println(string(output))
-			}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		result, err := startBackup(config, ctx)
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println(string(result))
+			return
 		}
+		fmt.Println(string(result))
 		return
 	}
 	switch os.Args[1] {
@@ -148,4 +93,102 @@ func main() {
 		fmt.Println("неверный аргумент")
 		return
 	}
+}
+
+func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) {
+	var output []byte
+	var errs []error
+
+	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UlilName)
+	for _, base := range config.Bases {
+		fmt.Printf("Сейчас работаем с базой %s\n", base.DBName)
+		fmt.Println(base.DBDir)
+		timestamp := time.Now().Format("2006-01-02_15-04-05")
+		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
+		if base.Mode == "dbms" {
+			ibcmdArgs := []string{
+				"infobase",
+				"dump",
+				"--dbms=" + config.ServerSettings.DBMS,
+				"--db-server=" + config.ServerSettings.Server + " port=" + strconv.Itoa(config.ServerSettings.Port),
+				"--db-user=" + config.ServerSettings.DBMSUser,
+				"--db-pwd=" + config.ServerSettings.DBMSPassword,
+				"--db-name=" + base.DBName,
+			}
+			if base.User != "" {
+				ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+			}
+			if base.Password != "" {
+				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+			}
+			ibcmdArgs = append(ibcmdArgs, backupPathName)
+			output, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+			if err != nil {
+				errs = append(errs, err)
+				output = append(output, output...)
+			}
+			output = append(output, output...)
+		} else {
+			ibcmdArgs := []string{
+				"infobase",
+				"dump",
+			}
+			if strings.HasPrefix(base.DBDir, "//") {
+				ibcmdArgs = append(ibcmdArgs, "--db-path="+getconfig.MountPoints[base.DBName])
+			} else {
+				dbPath := filepath.Join(base.DBDir)
+				ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
+
+			}
+			if base.User != "" {
+				ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+			}
+			if base.Password != "" {
+				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+			}
+			ibcmdArgs = append(ibcmdArgs, backupPathName)
+			output, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+			if err != nil {
+				errs = append(errs, err)
+				output = append(output, output...)
+			}
+			output = append(output, output...)
+		}
+		if strings.HasPrefix(base.DBDir, "//") {
+			cmd := exec.Command("umount", getconfig.MountPoints[base.DBName])
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				fmt.Printf("не удалось отмонтировать %s: %s: %s\n", getconfig.MountPoints[base.DBName], err, strings.TrimSpace(string(output)))
+			}
+			err = os.Remove(getconfig.MountPoints[base.DBName])
+			if err != nil {
+				fmt.Printf("не удалось удалить каталог %s\n", getconfig.MountPoints[base.DBName])
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return output, errors.Join(errs...)
+	} else if len(output) > 0 {
+		return output, nil
+	}
+	return output, nil
+}
+
+func runIbcmd(ctx context.Context, ibcmdPath string, ibcmdArgs []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, ibcmdPath, ibcmdArgs...)
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			fmt.Println(string(exitErr.Stderr))
+			return output, exitErr
+		} else if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+			return output, pathErr
+		} else {
+			fmt.Println(err)
+			return output, err
+		}
+	}
+	fmt.Println(string(output))
+	return output, nil
 }

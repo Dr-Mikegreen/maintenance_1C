@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,6 +29,7 @@ type General struct {
 	BackupsPath   string `yaml:"backups_path"`
 	IbcmdPath     string `yaml:"ibcmd_path"`
 	LogPath       string `yaml:"log_path"`
+	MountPath     string `yaml:"mount_path"`
 	StopServise1C *bool  `yaml:"1c_stop"`
 	TimeToStart   string `yaml:"time_to_start"`
 }
@@ -60,6 +63,8 @@ type Base struct {
 	ValidateRestore bool     `yaml:"validate_restore"`
 	Schedules       []string `yaml:"schedules"`
 }
+
+var MountPoints map[string]string
 
 // Ошибки конфигурации.
 var ErrInvalid_BackupsPath = errors.New("не указан каталог для сохранения копий")
@@ -284,8 +289,40 @@ func (c *Config) EnvironmentValidate() error {
 			conn.Close()
 		}
 	}
+	MountPoints = make(map[string]string)
 	for i, base := range c.Bases {
-		if base.Mode == "file" {
+		if base.Mode == "file" && strings.HasPrefix(base.DBDir, "//") {
+			switch runtime.GOOS {
+			case "linux":
+				err = checkPath(c.General.MountPath)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("для монтирования сетевого пути %w", err))
+				}
+				_, err := exec.LookPath("mount.cifs")
+				if err != nil {
+					errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
+					break
+				}
+				MountPoints[base.DBName] = filepath.Join(c.General.MountPath, base.DBName)
+				err = os.Mkdir(MountPoints[base.DBName], 0755)
+				if err != nil {
+					return fmt.Errorf("не удалось создать каталог для монтирования базы %s, %w", base.DBName, err)
+				}
+				cmd := exec.Command("mount.cifs", base.DBDir, MountPoints[base.DBName], "-o", "credentials=/home/admins/credentials")
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output)))
+				}
+
+			case "windows":
+				err = checkPath(base.DBDir)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
+				}
+			default:
+				errs = append(errs, fmt.Errorf("неподдерживаемая операционная система: %s", runtime.GOOS))
+			}
+		} else if base.Mode == "file" {
 			err = checkPath(base.DBDir)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
@@ -311,6 +348,7 @@ func checkPath(path string) error {
 		return fmt.Errorf("не удалось создать тестовый файл в %s:\n%w", path, err)
 	} else {
 		if err := file.Close(); err != nil {
+			os.Remove(testFile)
 			return fmt.Errorf("не удалось закрыть тестовый файл:\n%w", err)
 		}
 		if err := os.Remove(testFile); err != nil {
