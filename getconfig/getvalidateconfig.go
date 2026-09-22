@@ -22,7 +22,8 @@ type Config struct {
 	ServerSettings   ServerSettings   `yaml:"server_settings"`
 	ScheduleSettings ScheduleSettings `yaml:"schedule_settings"`
 	Bases            []Base           `yaml:"bases"`
-	UlilName         string
+	UtilName         string
+	MountPoints      map[string]string
 }
 
 type General struct {
@@ -32,6 +33,7 @@ type General struct {
 	MountPath     string `yaml:"mount_path"`
 	StopServise1C *bool  `yaml:"1c_stop"`
 	TimeToStart   string `yaml:"time_to_start"`
+	Credentials   string `yaml:"credentials"`
 }
 
 type ServerSettings struct {
@@ -63,8 +65,6 @@ type Base struct {
 	ValidateRestore bool     `yaml:"validate_restore"`
 	Schedules       []string `yaml:"schedules"`
 }
-
-var MountPoints map[string]string
 
 // Ошибки конфигурации.
 var ErrInvalid_BackupsPath = errors.New("не указан каталог для сохранения копий")
@@ -103,6 +103,10 @@ func LoadConfig(file string, now bool) (*Config, error) {
 	err = config.EnvironmentValidate()
 	if err != nil {
 		return nil, err
+	}
+	err = PrepareEnvironment(&config)
+	if err != nil {
+		return &config, err
 	}
 	return &config, nil
 }
@@ -171,6 +175,7 @@ func (c *Config) ConfigValidate(now bool) error {
 			seen = true
 		}
 	}
+	// server_settings проверяется только при наличии баз с mode: "dbms"
 	if seen && c.ServerSettings.DBMS == "" {
 		errs = append(errs, ErrInvalid_DBMSempty)
 	}
@@ -246,7 +251,7 @@ func (c *Config) EnvironmentValidate() error {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("для сохранения копий %w", err))
 	}
-	// Проверим проверим утилиту ibcmd по указанному пути
+	// Проверим утилиту ibcmd по указанному пути
 	switch runtime.GOOS {
 	case "linux":
 		name := "ibcmd"
@@ -257,7 +262,7 @@ func (c *Config) EnvironmentValidate() error {
 		} else {
 			defer file.Close()
 		}
-		c.UlilName = name
+		c.UtilName = name
 	case "windows":
 		name := "ibcmd.exe"
 		targetFile := filepath.Join(c.General.IbcmdPath, name)
@@ -267,7 +272,7 @@ func (c *Config) EnvironmentValidate() error {
 		} else {
 			defer file.Close()
 		}
-		c.UlilName = name
+		c.UtilName = name
 	default:
 		errs = append(errs, fmt.Errorf("неподдерживаемая операционная система: %s", runtime.GOOS))
 	}
@@ -289,44 +294,48 @@ func (c *Config) EnvironmentValidate() error {
 			conn.Close()
 		}
 	}
-	MountPoints = make(map[string]string)
 	for i, base := range c.Bases {
-		if base.Mode == "file" && strings.HasPrefix(base.DBDir, "//") {
-			switch runtime.GOOS {
-			case "linux":
-				err = checkPath(c.General.MountPath)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("для монтирования сетевого пути %w", err))
-				}
-				_, err := exec.LookPath("mount.cifs")
-				if err != nil {
-					errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
-					break
-				}
-				MountPoints[base.DBName] = filepath.Join(c.General.MountPath, base.DBName)
-				err = os.Mkdir(MountPoints[base.DBName], 0755)
-				if err != nil {
-					return fmt.Errorf("не удалось создать каталог для монтирования базы %s, %w", base.DBName, err)
-				}
-				cmd := exec.Command("mount.cifs", base.DBDir, MountPoints[base.DBName], "-o", "credentials=/home/admins/credentials")
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					return fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output)))
-				}
-
-			case "windows":
-				err = checkPath(base.DBDir)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
-				}
-			default:
-				errs = append(errs, fmt.Errorf("неподдерживаемая операционная система: %s", runtime.GOOS))
-			}
-		} else if base.Mode == "file" {
+		if base.Mode == "file" && !strings.HasPrefix(base.DBDir, "//") {
 			err = checkPath(base.DBDir)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
 			}
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func PrepareEnvironment(c *Config) error {
+	var errs []error
+	c.MountPoints = make(map[string]string)
+	for i, base := range c.Bases {
+		if base.Mode == "file" && strings.HasPrefix(base.DBDir, "//") {
+			_, err := exec.LookPath("mount.cifs")
+			if err != nil {
+				errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
+				continue
+			}
+			mountDir := filepath.Join(c.General.MountPath, base.DBName)
+			err = os.Mkdir(mountDir, 0755)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось создать каталог для монтирования базы %s, %w", base.DBName, err))
+				continue
+			}
+			cmd := exec.Command("mount.cifs", base.DBDir, mountDir, "-o", "credentials="+c.General.Credentials)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output))))
+				continue
+			}
+			err = checkPath(mountDir)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
+				continue
+			}
+			c.MountPoints[base.DBName] = mountDir
 		}
 	}
 	if len(errs) > 0 {

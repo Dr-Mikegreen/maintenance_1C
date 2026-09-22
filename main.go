@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const version string = "1.0.9"
+const version string = "1.0.11"
 
 var now bool = false
 
@@ -52,13 +52,24 @@ func main() {
 		}
 		now = true
 		config, err := getconfig.LoadConfig("config.yaml", now)
-		if err != nil {
+		if config == nil && err != nil {
 			fmt.Println(err)
 			return
+		} else if err != nil {
+			lost := 0
+			for _, base := range config.Bases {
+				if strings.HasPrefix(base.DBDir, "//") && len(config.MountPoints[base.DBName]) == 0 {
+					lost++
+				}
+			}
+			if lost == len(config.Bases) {
+				fmt.Println(err)
+				return
+			} else {
+				fmt.Println(err)
+			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		result, err := startBackup(config, ctx)
+		result, err := startBackup(config)
 		if err != nil {
 			fmt.Println(err)
 			fmt.Println(string(result))
@@ -94,15 +105,16 @@ func main() {
 	}
 }
 
-func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) {
+func startBackup(config *getconfig.Config) ([]byte, error) {
 	var ibcmdArgs []string
 	var output []byte
 	var errs []error
 
-	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UlilName)
+	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 	for _, base := range config.Bases {
 		fmt.Printf("Сейчас работаем с базой %s\n", base.DBName)
 		fmt.Println(base.DBDir)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
 		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
 		if base.Mode == "dbms" {
@@ -128,7 +140,12 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 				"dump",
 			}
 			if strings.HasPrefix(base.DBDir, "//") {
-				ibcmdArgs = append(ibcmdArgs, "--db-path="+getconfig.MountPoints[base.DBName])
+				if path, ok := config.MountPoints[base.DBName]; ok == false {
+					errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
+					continue
+				} else {
+					ibcmdArgs = append(ibcmdArgs, "--db-path="+path)
+				}
 			} else {
 				dbPath := filepath.Join(base.DBDir)
 				ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
@@ -144,21 +161,21 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 		cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
 		if err != nil {
 			errs = append(errs, err)
-			output = append(output, cmdOutput...)
-		} else {
-			output = append(output, cmdOutput...)
 		}
+		output = append(output, cmdOutput...)
 		if strings.HasPrefix(base.DBDir, "//") {
-			cmd := exec.CommandContext(ctx, "umount", getconfig.MountPoints[base.DBName])
-			output, err = cmd.CombinedOutput()
+			cmd := exec.CommandContext(ctx, "umount", config.MountPoints[base.DBName])
+			cmdOutput, err := cmd.CombinedOutput()
 			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", getconfig.MountPoints[base.DBName], err, strings.TrimSpace(string(output))))
+				errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", config.MountPoints[base.DBName], err, strings.TrimSpace(string(cmdOutput))))
 			}
-			err = os.Remove(getconfig.MountPoints[base.DBName])
+			err = os.Remove(config.MountPoints[base.DBName])
 			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", getconfig.MountPoints[base.DBName]), err)
+				errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", config.MountPoints[base.DBName], err))
 			}
+			output = append(output, cmdOutput...)
 		}
+		cancel()
 	}
 	if len(errs) > 0 {
 		return output, errors.Join(errs...)
