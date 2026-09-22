@@ -56,7 +56,6 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		result, err := startBackup(config, ctx)
@@ -96,6 +95,7 @@ func main() {
 }
 
 func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) {
+	var ibcmdArgs []string
 	var output []byte
 	var errs []error
 
@@ -106,7 +106,7 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
 		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
 		if base.Mode == "dbms" {
-			ibcmdArgs := []string{
+			ibcmdArgs = []string{
 				"infobase",
 				"dump",
 				"--dbms=" + config.ServerSettings.DBMS,
@@ -122,14 +122,8 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
 			}
 			ibcmdArgs = append(ibcmdArgs, backupPathName)
-			output, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
-			if err != nil {
-				errs = append(errs, err)
-				output = append(output, output...)
-			}
-			output = append(output, output...)
 		} else {
-			ibcmdArgs := []string{
+			ibcmdArgs = []string{
 				"infobase",
 				"dump",
 			}
@@ -138,7 +132,6 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 			} else {
 				dbPath := filepath.Join(base.DBDir)
 				ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
-
 			}
 			if base.User != "" {
 				ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
@@ -147,30 +140,28 @@ func startBackup(config *getconfig.Config, ctx context.Context) ([]byte, error) 
 				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
 			}
 			ibcmdArgs = append(ibcmdArgs, backupPathName)
-			output, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
-			if err != nil {
-				errs = append(errs, err)
-				output = append(output, output...)
-			}
-			output = append(output, output...)
+		}
+		cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+		if err != nil {
+			errs = append(errs, err)
+			output = append(output, cmdOutput...)
+		} else {
+			output = append(output, cmdOutput...)
 		}
 		if strings.HasPrefix(base.DBDir, "//") {
-			cmd := exec.Command("umount", getconfig.MountPoints[base.DBName])
-			output, err := cmd.CombinedOutput()
+			cmd := exec.CommandContext(ctx, "umount", getconfig.MountPoints[base.DBName])
+			output, err = cmd.CombinedOutput()
 			if err != nil {
-				fmt.Printf("не удалось отмонтировать %s: %s: %s\n", getconfig.MountPoints[base.DBName], err, strings.TrimSpace(string(output)))
+				errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", getconfig.MountPoints[base.DBName], err, strings.TrimSpace(string(output))))
 			}
 			err = os.Remove(getconfig.MountPoints[base.DBName])
 			if err != nil {
-				fmt.Printf("не удалось удалить каталог %s\n", getconfig.MountPoints[base.DBName])
+				errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", getconfig.MountPoints[base.DBName]), err)
 			}
 		}
 	}
-
 	if len(errs) > 0 {
 		return output, errors.Join(errs...)
-	} else if len(output) > 0 {
-		return output, nil
 	}
 	return output, nil
 }
@@ -179,16 +170,24 @@ func runIbcmd(ctx context.Context, ibcmdPath string, ibcmdArgs []string) ([]byte
 	cmd := exec.CommandContext(ctx, ibcmdPath, ibcmdArgs...)
 	output, err := cmd.Output()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			switch {
+			case errors.Is(ctxErr, context.DeadlineExceeded):
+				return output, fmt.Errorf("команда не уложилась в таймаут: %w", ctxErr)
+			case errors.Is(ctxErr, context.Canceled):
+				return output, fmt.Errorf("выполнение команды отменено: %w", ctxErr)
+			default:
+				return output, ctxErr
+			}
+		}
 		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			fmt.Println(string(exitErr.Stderr))
-			return output, exitErr
+			return output, fmt.Errorf("ibcmd завершился с кодом %d: %s: %w", exitErr.ExitCode(), exitErr.Stderr, err)
 		} else if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
-			return output, pathErr
+			return output, fmt.Errorf("не удалось выполнить операцию %s %s:\n%w", pathErr.Op, pathErr.Path, pathErr.Err)
 		} else {
 			fmt.Println(err)
 			return output, err
 		}
 	}
-	fmt.Println(string(output))
 	return output, nil
 }
