@@ -142,6 +142,7 @@ func startBackup(config *getconfig.Config) ([]byte, error) {
 			if strings.HasPrefix(base.DBDir, "//") {
 				if path, ok := config.MountPoints[base.DBName]; ok == false {
 					errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
+					cancel()
 					continue
 				} else {
 					ibcmdArgs = append(ibcmdArgs, "--db-path="+path)
@@ -202,7 +203,6 @@ func runIbcmd(ctx context.Context, ibcmdPath string, ibcmdArgs []string) ([]byte
 		} else if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
 			return output, fmt.Errorf("не удалось выполнить операцию %s %s:\n%w", pathErr.Op, pathErr.Path, pathErr.Err)
 		} else {
-			fmt.Println(err)
 			return output, err
 		}
 	}

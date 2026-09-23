@@ -30,10 +30,12 @@ type General struct {
 	BackupsPath   string `yaml:"backups_path"`
 	IbcmdPath     string `yaml:"ibcmd_path"`
 	LogPath       string `yaml:"log_path"`
-	MountPath     string `yaml:"mount_path"`
 	StopServise1C *bool  `yaml:"1c_stop"`
 	TimeToStart   string `yaml:"time_to_start"`
-	Credentials   string `yaml:"credentials"`
+	SecretsFile   string `yaml:"secrets_file"`
+	MountPath     string `yaml:"mount_path"`
+	NetUser       string `yaml:"net_user"`
+	NetPassword   string `yaml:"net_password"`
 }
 
 type ServerSettings struct {
@@ -71,6 +73,8 @@ var ErrInvalid_BackupsPath = errors.New("не указан каталог для
 var ErrInvalid_IbcmdPath = errors.New("не указан путь к утилите ibcmd")
 var ErrInvalid_LogPath = errors.New("не указан каталог для сохранения логов")
 var ErrInvalid_TimeToStart = errors.New("время запуска должно быть в формате \"чч:мм\"")
+var ErrInvalid_MountPath = errors.New("не указан каталог для монтирования сетевых файловых баз")
+var ErrInvalid_NetUser = errors.New("не указан пользователь для доступа к сетевым ресурсам")
 var ErrInvalid_DBMS = errors.New("тип СУБД может принимать значения \"PostgreSQL\" или \"MSSQL\" с учетом регистра или быть не заполненным")
 var ErrInvalid_DBMSempty = errors.New("тип СУБД не заполнен, однако в секции bases есть базы с режимом \"dbms\"")
 var ErrInvalid_DBMSfilled = errors.New("в секции bases нет баз с режимом \"dbms\", тип СУБД заполнять не нужно")
@@ -96,6 +100,10 @@ func LoadConfig(file string, now bool) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ошибка разбора yaml: %w", err)
 	}
+	err = getSecrets(&config, config.General.SecretsFile)
+	if err != nil {
+		return nil, err
+	}
 	err = config.ConfigValidate(now)
 	if err != nil {
 		return nil, err
@@ -109,6 +117,64 @@ func LoadConfig(file string, now bool) (*Config, error) {
 		return &config, err
 	}
 	return &config, nil
+}
+
+func getSecrets(c *Config, file string) error {
+	if file == "" {
+		return fmt.Errorf("не заполнен secrets_file в config.yaml")
+	}
+	filePath, err := os.Open(file)
+	if err != nil {
+		return fmt.Errorf("не удалось открыть для чтения файл из secrets_file в config.yaml:\n%w", err)
+	} else {
+		defer filePath.Close()
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		return fmt.Errorf("не удалось проверить файл %s: %w", file, err)
+	} else if info.IsDir() {
+		return fmt.Errorf("%s это каталог", file)
+	}
+	perm := info.Mode().Perm()
+	if perm&0044 != 0 {
+		return fmt.Errorf("файл %s доступен для чтения не только владельцу (права: %o), исправьте через chmod 600", file, perm)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("ошибка чиения файла: %w", err)
+	}
+	type baseSecret struct {
+		User     string `yaml:"user"`
+		Password string `yaml:"password"`
+	}
+	type secrets struct {
+		Net struct {
+			NetUser     string `yaml:"net_user"`
+			NetPassword string `yaml:"net_password"`
+		} `yaml:"net"`
+		DBMS struct {
+			DBMSUser     string `yaml:"dbms_user"`
+			DBMSPassword string `yaml:"dbms_password"`
+		} `yaml:"dbms"`
+		Bases map[string]baseSecret `yaml:"bases"`
+	}
+	var s secrets
+	err = yaml.Unmarshal(data, &s)
+	if err != nil {
+		return fmt.Errorf("ошибка разбора yaml: %w", err)
+	}
+	c.General.NetUser = s.Net.NetUser
+	c.General.NetPassword = s.Net.NetPassword
+	c.ServerSettings.DBMSUser = s.DBMS.DBMSUser
+	c.ServerSettings.DBMSPassword = s.DBMS.DBMSPassword
+	for i := range c.Bases {
+		secret, ok := s.Bases[c.Bases[i].DBName]
+		if ok {
+			c.Bases[i].User = secret.User
+			c.Bases[i].Password = secret.Password
+		}
+	}
+	return nil
 }
 
 func (c *Config) ConfigValidate(now bool) error {
@@ -152,7 +218,8 @@ func (c *Config) ConfigValidate(now bool) error {
 	if err := maintenanceTypesCheck(c.ScheduleSettings.Monthly.MaintenanceTypes); err != nil {
 		errs = append(errs, fmt.Errorf("ошибка maintenance_types в секции monthly:\n%w", err))
 	}
-	seen := false
+	dbms := false
+	netPath := false
 	for i, base := range c.Bases {
 		if base.Mode != "file" && base.Mode != "dbms" {
 			errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, ErrInvalid_Mode))
@@ -172,14 +239,17 @@ func (c *Config) ConfigValidate(now bool) error {
 			}
 		}
 		if base.Mode == "dbms" {
-			seen = true
+			dbms = true
+		}
+		if strings.HasPrefix(base.DBDir, "//") {
+			netPath = true
 		}
 	}
 	// server_settings проверяется только при наличии баз с mode: "dbms"
-	if seen && c.ServerSettings.DBMS == "" {
+	if dbms && c.ServerSettings.DBMS == "" {
 		errs = append(errs, ErrInvalid_DBMSempty)
 	}
-	if seen && c.ServerSettings.DBMS != "" {
+	if dbms && c.ServerSettings.DBMS != "" {
 		if c.ServerSettings.Server == "" {
 			errs = append(errs, ErrInvalid_Server)
 		}
@@ -193,8 +263,17 @@ func (c *Config) ConfigValidate(now bool) error {
 			errs = append(errs, ErrInvalid_DBMSPassword)
 		}
 	}
-	if !seen && c.ServerSettings.DBMS != "" {
+	if !dbms && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMSfilled)
+	}
+	// mount_path и NetUser проверяется только при наличии сетевых баз
+	if netPath {
+		if c.General.MountPath == "" {
+			errs = append(errs, ErrInvalid_MountPath)
+		}
+		if c.General.NetUser == "" {
+			errs = append(errs, ErrInvalid_NetUser)
+		}
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -310,32 +389,76 @@ func (c *Config) EnvironmentValidate() error {
 
 func PrepareEnvironment(c *Config) error {
 	var errs []error
-	c.MountPoints = make(map[string]string)
-	for i, base := range c.Bases {
+
+	// Выясним есть ли в списке баз сетевые Linux пути
+	netPath := false
+	for _, base := range c.Bases {
 		if base.Mode == "file" && strings.HasPrefix(base.DBDir, "//") {
-			_, err := exec.LookPath("mount.cifs")
-			if err != nil {
-				errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
-				continue
+			netPath = true
+		}
+	}
+	if netPath {
+		file, err := os.CreateTemp("", "cifs-credentials-*")
+		if err != nil {
+			return fmt.Errorf("не удалось создать временный файл:\n%w", err)
+		}
+		if err := file.Chmod(0600); err != nil {
+			file.Close()
+			if err := os.Remove(file.Name()); err != nil {
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
 			}
-			mountDir := filepath.Join(c.General.MountPath, base.DBName)
-			err = os.Mkdir(mountDir, 0755)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось создать каталог для монтирования базы %s, %w", base.DBName, err))
-				continue
+			errs = append(errs, fmt.Errorf("не удалось установить права 0600 на временный файл %s:\n%w", file.Name(), err))
+			return errors.Join(errs...)
+		}
+		_, err = file.WriteString("username=" + c.General.NetUser + "\n" + "password=" + c.General.NetPassword + "\n")
+		if err != nil {
+			file.Close()
+			if err := os.Remove(file.Name()); err != nil {
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
 			}
-			cmd := exec.Command("mount.cifs", base.DBDir, mountDir, "-o", "credentials="+c.General.Credentials)
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output))))
-				continue
+			errs = append(errs, fmt.Errorf("не удалось записать данные во временный файл %s:\n%w", file.Name(), err))
+			return errors.Join(errs...)
+		}
+		if err := file.Close(); err != nil {
+			if err := os.Remove(file.Name()); err != nil {
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
 			}
-			err = checkPath(mountDir)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
-				continue
+			errs = append(errs, fmt.Errorf("не удалось закрыть временный файл %s:\n%w", file.Name(), err))
+			return errors.Join(errs...)
+		}
+		c.MountPoints = make(map[string]string)
+		_, err = exec.LookPath("mount.cifs")
+		if err != nil {
+			if err := os.Remove(file.Name()); err != nil {
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
 			}
-			c.MountPoints[base.DBName] = mountDir
+			errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
+			return errors.Join(errs...)
+		}
+		for i, base := range c.Bases {
+			if base.Mode == "file" && strings.HasPrefix(base.DBDir, "//") {
+				mountDir := filepath.Join(c.General.MountPath, base.DBName)
+				err = os.Mkdir(mountDir, 0755)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("не удалось создать каталог для монтирования базы %s, %w", base.DBName, err))
+					continue
+				}
+				cmd := exec.Command("mount.cifs", base.DBDir, mountDir, "-o", "credentials="+file.Name())
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					errs = append(errs, fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output))))
+					continue
+				}
+				err = checkPath(mountDir)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
+					continue
+				}
+				c.MountPoints[base.DBName] = mountDir
+			}
+		}
+		if err := os.Remove(file.Name()); err != nil {
+			errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
 		}
 	}
 	if len(errs) > 0 {
