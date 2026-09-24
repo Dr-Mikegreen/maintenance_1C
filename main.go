@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maintenance1c/constants"
 	"maintenance1c/getconfig"
 	"os"
 	"os/exec"
@@ -15,8 +16,6 @@ import (
 	"strings"
 	"time"
 )
-
-const version string = "1.0.12"
 
 var now bool = false
 
@@ -50,6 +49,71 @@ func main() {
 			fmt.Println("неверные аргументы")
 			return
 		}
+		os.Args[1] = s
+	}
+	switch os.Args[1] {
+	case commands[0].Name:
+		for _, str := range commands {
+			fmt.Printf("%s 	- %s\n", str.Name, str.Description)
+		}
+		return
+	case commands[1].Name:
+		fmt.Println(constants.Version)
+		return
+	case commands[2].Name:
+		config, err := getconfig.LoadConfig("config.yaml", now)
+		if config == nil && err != nil {
+			fmt.Println(err)
+			return
+		} else if err != nil {
+			lost := 0
+			for _, base := range config.Bases {
+				if strings.HasPrefix(base.DBDir, "//") && len(config.MountPoints[base.DBName]) == 0 {
+					lost++
+				}
+			}
+			if lost == len(config.Bases) {
+				fmt.Println(err)
+				return
+			} else {
+				fmt.Println(err)
+			}
+		}
+		if len(config.ScheduleSettings) == 0 {
+			fmt.Println("Не включено ни одно расписание в schedule_settings")
+			return
+		}
+		var ibcmdArgs []string
+		var output []byte
+		var errs []error
+
+		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
+		t := time.Now()
+		for _, base := range config.Bases {
+			for _, schedule := range base.Schedules {
+				if schedule == constants.ScheduleMonthly {
+					rules := config.ScheduleSettings[schedule]
+					timestamp := time.Now().Format("2006-01-02_15-04-05")
+					backupPathName := filepath.Join(config.General.BackupsPath, rules.ScheduleBackupDir, base.DBName+"_"+timestamp)
+					for _, day := range rules.ScheduleDays {
+						if day == t.Day() {
+							result, err := backupCurentBase(config, ibcmdPath, backupPathName, base, ibcmdArgs, errs, output)
+							output = append(output, result...)
+							errs = append(errs, err)
+						}
+					}
+
+				}
+			}
+		}
+		if len(errs) > 0 {
+			errors.Join(errs...)
+			fmt.Println(string(output))
+			fmt.Println(errs)
+		}
+		fmt.Println(string(output))
+		return
+	case commands[3].Name:
 		now = true
 		config, err := getconfig.LoadConfig("config.yaml", now)
 		if config == nil && err != nil {
@@ -77,19 +141,6 @@ func main() {
 		}
 		fmt.Println(string(result))
 		return
-	}
-	switch os.Args[1] {
-	case commands[0].Name:
-		for _, str := range commands {
-			fmt.Printf("%s 	- %s\n", str.Name, str.Description)
-		}
-		return
-	case commands[1].Name:
-		fmt.Println(version)
-		return
-	case commands[2].Name:
-		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[2].Name, commands[2].Description)
-		return
 	case commands[4].Name:
 		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[4].Name, commands[4].Description)
 		return
@@ -105,6 +156,17 @@ func main() {
 	}
 }
 
+// func currentModes(config *getconfig.Config) ([]string, error) {
+// 	var currentModes []string
+// 	for schedule, rules := range config.ScheduleSettings {
+// 		currentModes = append(currentModes, set.Schedule)
+// 	}
+// 	if len(currentModes) == 0 {
+// 		return nil, fmt.Errorf("не включено ни одно расписание в schedule_settings")
+// 	}
+// 	return currentModes, nil
+// }
+
 func startBackup(config *getconfig.Config) ([]byte, error) {
 	var ibcmdArgs []string
 	var output []byte
@@ -112,70 +174,79 @@ func startBackup(config *getconfig.Config) ([]byte, error) {
 
 	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 	for _, base := range config.Bases {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
 		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
-		if base.Mode == "dbms" {
-			ibcmdArgs = []string{
-				"infobase",
-				"dump",
-				"--dbms=" + config.ServerSettings.DBMS,
-				"--db-server=" + config.ServerSettings.Server + " port=" + strconv.Itoa(config.ServerSettings.Port),
-				"--db-user=" + config.ServerSettings.DBMSUser,
-				"--db-pwd=" + config.ServerSettings.DBMSPassword,
-				"--db-name=" + base.DBName,
-			}
-			if base.User != "" {
-				ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-			}
-			if base.Password != "" {
-				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-			}
-			ibcmdArgs = append(ibcmdArgs, backupPathName)
-		} else {
-			ibcmdArgs = []string{
-				"infobase",
-				"dump",
-			}
-			if strings.HasPrefix(base.DBDir, "//") {
-				if path, ok := config.MountPoints[base.DBName]; ok == false {
-					errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
-					cancel()
-					continue
-				} else {
-					ibcmdArgs = append(ibcmdArgs, "--db-path="+path)
-				}
-			} else {
-				dbPath := filepath.Join(base.DBDir)
-				ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
-			}
-			if base.User != "" {
-				ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-			}
-			if base.Password != "" {
-				ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-			}
-			ibcmdArgs = append(ibcmdArgs, backupPathName)
+		result, err := backupCurentBase(config, ibcmdPath, backupPathName, base, ibcmdArgs, errs, output)
+		output = append(output, result...)
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return output, errors.Join(errs...)
+	}
+	return output, nil
+}
+
+func backupCurentBase(config *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base, ibcmdArgs []string, errs []error, output []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	if base.Mode == "dbms" {
+		ibcmdArgs = []string{
+			"infobase",
+			"dump",
+			"--dbms=" + config.ServerSettings.DBMS,
+			"--db-server=" + config.ServerSettings.Server + " port=" + strconv.Itoa(config.ServerSettings.Port),
+			"--db-user=" + config.ServerSettings.DBMSUser,
+			"--db-pwd=" + config.ServerSettings.DBMSPassword,
+			"--db-name=" + base.DBName,
 		}
-		cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+		if base.User != "" {
+			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		}
+		if base.Password != "" {
+			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		}
+		ibcmdArgs = append(ibcmdArgs, backupPathName)
+	} else {
+		ibcmdArgs = []string{
+			"infobase",
+			"dump",
+		}
+		if strings.HasPrefix(base.DBDir, "//") {
+			if path, ok := config.MountPoints[base.DBName]; ok == false {
+				errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
+				cancel()
+			} else {
+				ibcmdArgs = append(ibcmdArgs, "--db-path="+path)
+			}
+		} else {
+			dbPath := filepath.Join(base.DBDir)
+			ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
+		}
+		if base.User != "" {
+			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		}
+		if base.Password != "" {
+			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		}
+		ibcmdArgs = append(ibcmdArgs, backupPathName)
+	}
+	cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	output = append(output, cmdOutput...)
+	if strings.HasPrefix(base.DBDir, "//") {
+		cmd := exec.CommandContext(ctx, "umount", config.MountPoints[base.DBName])
+		cmdOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", config.MountPoints[base.DBName], err, strings.TrimSpace(string(cmdOutput))))
+		}
+		err = os.Remove(config.MountPoints[base.DBName])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", config.MountPoints[base.DBName], err))
 		}
 		output = append(output, cmdOutput...)
-		if strings.HasPrefix(base.DBDir, "//") {
-			cmd := exec.CommandContext(ctx, "umount", config.MountPoints[base.DBName])
-			cmdOutput, err := cmd.CombinedOutput()
-			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", config.MountPoints[base.DBName], err, strings.TrimSpace(string(cmdOutput))))
-			}
-			err = os.Remove(config.MountPoints[base.DBName])
-			if err != nil {
-				errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", config.MountPoints[base.DBName], err))
-			}
-			output = append(output, cmdOutput...)
-		}
-		cancel()
 	}
+	cancel()
 	if len(errs) > 0 {
 		return output, errors.Join(errs...)
 	}

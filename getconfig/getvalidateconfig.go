@@ -5,6 +5,7 @@ package getconfig
 import (
 	"errors"
 	"fmt"
+	"maintenance1c/constants"
 	"net"
 	"os"
 	"os/exec"
@@ -17,11 +18,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// var ValidSchedules = []string{
+// 	"daily",
+// 	"weekly",
+// 	"monthly",
+// }
+
 type Config struct {
-	General          General          `yaml:"general"`
-	ServerSettings   ServerSettings   `yaml:"server_settings"`
-	ScheduleSettings ScheduleSettings `yaml:"schedule_settings"`
-	Bases            []Base           `yaml:"bases"`
+	General          General                 `yaml:"general"`
+	ServerSettings   ServerSettings          `yaml:"server_settings"`
+	ScheduleSettings map[string]ScheduleRule `yaml:"schedule_settings"`
+	Bases            []Base                  `yaml:"bases"`
 	UtilName         string
 	MountPoints      map[string]string
 }
@@ -44,12 +51,6 @@ type ServerSettings struct {
 	Port         int    `yaml:"port"`
 	DBMSUser     string `yaml:"dbms_user"`
 	DBMSPassword string `yaml:"dbms_password"`
-}
-
-type ScheduleSettings struct {
-	Daily   ScheduleRule `yaml:"daily"`
-	Weekly  ScheduleRule `yaml:"weekly"`
-	Monthly ScheduleRule `yaml:"monthly"`
 }
 
 type ScheduleRule struct {
@@ -178,6 +179,7 @@ func getSecrets(c *Config, file string) error {
 
 func (c *Config) ConfigValidate(now bool) error {
 	var errs []error
+
 	if c.General.BackupsPath == "" {
 		errs = append(errs, ErrInvalid_BackupsPath)
 	}
@@ -199,23 +201,18 @@ func (c *Config) ConfigValidate(now bool) error {
 	if c.ServerSettings.DBMS != "PostgreSQL" && c.ServerSettings.DBMS != "MSSQL" && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMS)
 	}
-	if c.ScheduleSettings.Daily.DeleteOlder < 0 {
-		errs = append(errs, fmt.Errorf("%w для daily", ErrInvalid_DeleteOlder))
-	}
-	if c.ScheduleSettings.Weekly.DeleteOlder < 0 {
-		errs = append(errs, fmt.Errorf("%w для weekly", ErrInvalid_DeleteOlder))
-	}
-	if c.ScheduleSettings.Monthly.DeleteOlder < 0 {
-		errs = append(errs, fmt.Errorf("%w для monthly", ErrInvalid_DeleteOlder))
-	}
-	if err := maintenanceTypesCheck(c.ScheduleSettings.Daily.MaintenanceTypes); err != nil {
-		errs = append(errs, fmt.Errorf("ошибка maintenance_types в секции daily:\n%w", err))
-	}
-	if err := maintenanceTypesCheck(c.ScheduleSettings.Weekly.MaintenanceTypes); err != nil {
-		errs = append(errs, fmt.Errorf("ошибка maintenance_types в секции weekly:\n%w", err))
-	}
-	if err := maintenanceTypesCheck(c.ScheduleSettings.Monthly.MaintenanceTypes); err != nil {
-		errs = append(errs, fmt.Errorf("ошибка maintenance_types в секции monthly:\n%w", err))
+	if !now {
+		if err := adjustedSchedulesCheck(c.ScheduleSettings); err != nil {
+			errs = append(errs, fmt.Errorf("в секции schedule_settings\n%w", err))
+		}
+		for schedule, rules := range c.ScheduleSettings {
+			if rules.DeleteOlder < 0 {
+				errs = append(errs, fmt.Errorf("%w для %s", ErrInvalid_DeleteOlder, schedule))
+			}
+			if err := maintenanceTypesCheck(rules.MaintenanceTypes); err != nil {
+				errs = append(errs, fmt.Errorf("ошибка maintenance_types в секции %s:\n%w", schedule, err))
+			}
+		}
 	}
 	dbms := false
 	netPath := false
@@ -233,9 +230,10 @@ func (c *Config) ConfigValidate(now bool) error {
 			if len(base.Schedules) == 0 {
 				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, Err_Schedules))
 			}
-			if err := schedulesCheck(base.Schedules); err != nil {
-				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
+			if err := baseSchedulesCheck(c, base.Schedules); err != nil {
+				errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d:\n%w", i+1, err))
 			}
+
 		}
 		if base.Mode == "dbms" {
 			dbms = true
@@ -299,21 +297,46 @@ func maintenanceTypesCheck(maintenanceTypes []string) error {
 	return nil
 }
 
-func schedulesCheck(schedules []string) error {
+func adjustedSchedulesCheck(schedules map[string]ScheduleRule) error {
+	var errs []error
+
 	allowed := map[string]struct{}{
-		"daily":   {},
-		"weekly":  {},
-		"monthly": {},
+		constants.ScheduleDaily:   {},
+		constants.ScheduleWeekly:  {},
+		constants.ScheduleMonthly: {},
 	}
 	seen := make(map[string]struct{})
-	for _, value := range schedules {
+	for value := range schedules {
 		if _, ok := allowed[value]; !ok {
-			return Invalid_Schedules
+			errs = append(errs, Invalid_Schedules)
 		}
 		if _, ok := seen[value]; ok {
-			return Invalid_Schedules
+			errs = append(errs, fmt.Errorf("%w, есть повторяющиеся", Invalid_Schedules))
 		}
 		seen[value] = struct{}{}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func baseSchedulesCheck(c *Config, baseSchedules []string) error {
+	var errs []error
+
+	allowed := c.ScheduleSettings
+	seen := make(map[string]struct{})
+	for _, value := range baseSchedules {
+		if _, ok := allowed[value]; !ok {
+			errs = append(errs, fmt.Errorf("%w, есть расписания не заданные в schedule_settings", Invalid_Schedules))
+		}
+		if _, ok := seen[value]; ok {
+			errs = append(errs, fmt.Errorf("%w, есть повторяющиеся", Invalid_Schedules))
+		}
+		seen[value] = struct{}{}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }
@@ -381,10 +404,15 @@ func (c *Config) EnvironmentValidate(now bool) error {
 		}
 	}
 	// Проверим существуют и доступны ли каталоги для сохранения копий соответственно режимам
-	// if !now {
-	// 	if c.ScheduleSettings.Daily.ScheduleBackupDir
-	// }
-
+	if !now {
+		for schedule, rules := range c.ScheduleSettings {
+			path := filepath.Join(c.General.BackupsPath, rules.ScheduleBackupDir)
+			err = checkPath(path)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("в секции schedule_settings в настройках расписания %s %w", schedule, err))
+			}
+		}
+	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
