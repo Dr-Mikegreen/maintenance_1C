@@ -43,7 +43,7 @@ type ServerSettings struct {
 	Server       string `yaml:"srv"`
 	Port         int    `yaml:"port"`
 	DBMSUser     string `yaml:"dbms_user"`
-	DBMSPassword string `yaml:"dbms_password"` //Секрет нужно спрятать
+	DBMSPassword string `yaml:"dbms_password"`
 }
 
 type ScheduleSettings struct {
@@ -53,8 +53,10 @@ type ScheduleSettings struct {
 }
 
 type ScheduleRule struct {
-	DeleteOlder      int      `yaml:"delete_older"` //Сколькок минут хранить ежедневные копии
-	MaintenanceTypes []string `yaml:"maintenance_types"`
+	ScheduleBackupDir string   `yaml:"schedule_backup_dir"`
+	ScheduleDays      []int    `yaml:"schedule_days"`
+	DeleteOlder       int      `yaml:"delete_older"` //Сколькок минут хранить ежедневные копии
+	MaintenanceTypes  []string `yaml:"maintenance_types"`
 }
 
 type Base struct {
@@ -62,7 +64,7 @@ type Base struct {
 	DBDir           string   `yaml:"dbdir"`
 	DBName          string   `yaml:"dbname"`
 	User            string   `yaml:"user"`
-	Password        string   `yaml:"password"` //Секрет нужно спрятать
+	Password        string   `yaml:"password"`
 	ChkDB           bool     `yaml:"chkdb"`
 	ValidateRestore bool     `yaml:"validate_restore"`
 	Schedules       []string `yaml:"schedules"`
@@ -72,6 +74,7 @@ type Base struct {
 var ErrInvalid_BackupsPath = errors.New("не указан каталог для сохранения копий")
 var ErrInvalid_IbcmdPath = errors.New("не указан путь к утилите ibcmd")
 var ErrInvalid_LogPath = errors.New("не указан каталог для сохранения логов")
+var ErrInvalid_StopServise1C = errors.New("1c_stop должен быть \"true\" или \"false\"")
 var ErrInvalid_TimeToStart = errors.New("время запуска должно быть в формате \"чч:мм\"")
 var ErrInvalid_MountPath = errors.New("не указан каталог для монтирования сетевых файловых баз")
 var ErrInvalid_NetUser = errors.New("не указан пользователь для доступа к сетевым ресурсам")
@@ -108,7 +111,7 @@ func LoadConfig(file string, now bool) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = config.EnvironmentValidate()
+	err = config.EnvironmentValidate(now)
 	if err != nil {
 		return nil, err
 	}
@@ -123,25 +126,21 @@ func getSecrets(c *Config, file string) error {
 	if file == "" {
 		return fmt.Errorf("не заполнен secrets_file в config.yaml")
 	}
-	filePath, err := os.Open(file)
-	if err != nil {
-		return fmt.Errorf("не удалось открыть для чтения файл из secrets_file в config.yaml:\n%w", err)
-	} else {
-		defer filePath.Close()
-	}
 	info, err := os.Stat(file)
 	if err != nil {
 		return fmt.Errorf("не удалось проверить файл %s: %w", file, err)
 	} else if info.IsDir() {
 		return fmt.Errorf("%s это каталог", file)
 	}
-	perm := info.Mode().Perm()
-	if perm&0044 != 0 {
-		return fmt.Errorf("файл %s доступен для чтения не только владельцу (права: %o), исправьте через chmod 600", file, perm)
+	if runtime.GOOS != "Linux" {
+		perm := info.Mode().Perm()
+		if perm&0044 != 0 {
+			return fmt.Errorf("файл %s доступен для чтения не только владельцу (права: %o), исправьте через chmod 600", file, perm)
+		}
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return fmt.Errorf("ошибка чиения файла: %w", err)
+		return fmt.Errorf("ошибка чтения файла: %w", err)
 	}
 	type baseSecret struct {
 		User     string `yaml:"user"`
@@ -189,7 +188,7 @@ func (c *Config) ConfigValidate(now bool) error {
 		errs = append(errs, ErrInvalid_LogPath)
 	}
 	if c.General.StopServise1C == nil {
-		errs = append(errs, ErrEnv_StopServise1C)
+		errs = append(errs, ErrInvalid_StopServise1C)
 	}
 	if !now {
 		_, err := time.Parse("15:04", c.General.TimeToStart)
@@ -200,13 +199,13 @@ func (c *Config) ConfigValidate(now bool) error {
 	if c.ServerSettings.DBMS != "PostgreSQL" && c.ServerSettings.DBMS != "MSSQL" && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMS)
 	}
-	if c.ScheduleSettings.Daily.DeleteOlder <= 0 {
+	if c.ScheduleSettings.Daily.DeleteOlder < 0 {
 		errs = append(errs, fmt.Errorf("%w для daily", ErrInvalid_DeleteOlder))
 	}
-	if c.ScheduleSettings.Weekly.DeleteOlder <= 0 {
+	if c.ScheduleSettings.Weekly.DeleteOlder < 0 {
 		errs = append(errs, fmt.Errorf("%w для weekly", ErrInvalid_DeleteOlder))
 	}
-	if c.ScheduleSettings.Monthly.DeleteOlder <= 0 {
+	if c.ScheduleSettings.Monthly.DeleteOlder < 0 {
 		errs = append(errs, fmt.Errorf("%w для monthly", ErrInvalid_DeleteOlder))
 	}
 	if err := maintenanceTypesCheck(c.ScheduleSettings.Daily.MaintenanceTypes); err != nil {
@@ -320,10 +319,9 @@ func schedulesCheck(schedules []string) error {
 }
 
 // Ошибки среды
-var ErrEnv_StopServise1C = errors.New("1c_stop должен быть \"true\" или \"false\"")
 var ErrEnv_ServerPort = errors.New("не удалось подключиться к серверу. Проверьте имя или адрес и порт сервера")
 
-func (c *Config) EnvironmentValidate() error {
+func (c *Config) EnvironmentValidate(now bool) error {
 	var errs []error
 	// Проверим существует и доступен ли каталог для сохранения копий
 	err := checkPath(c.General.BackupsPath)
@@ -373,6 +371,7 @@ func (c *Config) EnvironmentValidate() error {
 			conn.Close()
 		}
 	}
+	// Проверим существуют и доступны ли каталоги с файловыми базами
 	for i, base := range c.Bases {
 		if base.Mode == "file" && !strings.HasPrefix(base.DBDir, "//") {
 			err = checkPath(base.DBDir)
@@ -381,6 +380,11 @@ func (c *Config) EnvironmentValidate() error {
 			}
 		}
 	}
+	// Проверим существуют и доступны ли каталоги для сохранения копий соответственно режимам
+	// if !now {
+	// 	if c.ScheduleSettings.Daily.ScheduleBackupDir
+	// }
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -451,7 +455,7 @@ func PrepareEnvironment(c *Config) error {
 				}
 				err = checkPath(mountDir)
 				if err != nil {
-					errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером %d %w", i+1, err))
+					errs = append(errs, fmt.Errorf("в секции bases в настройках базы под номером в точке монтирования %d %w", i+1, err))
 					continue
 				}
 				c.MountPoints[base.DBName] = mountDir

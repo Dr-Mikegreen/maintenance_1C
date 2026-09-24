@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const version string = "1.0.11"
+const version string = "1.0.12"
 
 var now bool = false
 
@@ -112,8 +112,6 @@ func startBackup(config *getconfig.Config) ([]byte, error) {
 
 	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 	for _, base := range config.Bases {
-		fmt.Printf("Сейчас работаем с базой %s\n", base.DBName)
-		fmt.Println(base.DBDir)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		timestamp := time.Now().Format("2006-01-02_15-04-05")
 		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
