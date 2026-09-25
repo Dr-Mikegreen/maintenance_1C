@@ -91,10 +91,12 @@ func main() {
 		}
 		fmt.Printf("Cегодня работаем по расписанию %s\n", mode)
 		//Удалим старые файлы выгрузки
-		curentBackupPath := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir)
-		err = cleanupOldFiles(curentBackupPath, time.Duration(config.ScheduleSettings[mode].DeleteOlder)*time.Hour)
-		if err != nil {
-			fmt.Println(err)
+		if config.ScheduleSettings[mode].DeleteOlder > 0 {
+			curentBackupPath := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir)
+			err = cleanupOldFiles(curentBackupPath, time.Duration(config.ScheduleSettings[mode].DeleteOlder)*time.Hour)
+			if err != nil {
+				fmt.Println(err)
+			}
 		}
 		//Выберем базы, которые включены в это расписание и выгрузим
 		var selectedDBs []getconfig.Base
