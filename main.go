@@ -83,35 +83,40 @@ func main() {
 			fmt.Println("Не включено ни одно расписание в schedule_settings")
 			return
 		}
-		var ibcmdArgs []string
-		var output []byte
-		var errs []error
-
-		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 		t := time.Now()
+		mode := curentMode(config, t)
+		if mode == "" {
+			fmt.Println("На сегодня нет работы")
+			return
+		}
+		fmt.Printf("Cегодня работаем по расписанию %s\n", mode)
+		var selectedDBs []getconfig.Base
 		for _, base := range config.Bases {
 			for _, schedule := range base.Schedules {
-				if schedule == constants.ScheduleMonthly {
-					rules := config.ScheduleSettings[schedule]
-					timestamp := time.Now().Format("2006-01-02_15-04-05")
-					backupPathName := filepath.Join(config.General.BackupsPath, rules.ScheduleBackupDir, base.DBName+"_"+timestamp)
-					for _, day := range rules.ScheduleDays {
-						if day == t.Day() {
-							result, err := backupCurentBase(config, ibcmdPath, backupPathName, base, ibcmdArgs, errs, output)
-							output = append(output, result...)
-							errs = append(errs, err)
-						}
-					}
-
+				if schedule == mode {
+					selectedDBs = append(selectedDBs, base)
 				}
 			}
 		}
-		if len(errs) > 0 {
-			errors.Join(errs...)
-			fmt.Println(string(output))
-			fmt.Println(errs)
+		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
+		for _, base := range selectedDBs {
+			timestamp := time.Now().Format("2006-01-02_15-04-05")
+			backupPathName := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir, base.DBName+"_"+timestamp)
+			result, err := backupBase(config, ibcmdPath, backupPathName, base)
+			if err != nil {
+				fmt.Println(err)
+				fmt.Println(string(result))
+				return
+			}
+			fmt.Println(string(result))
 		}
-		fmt.Println(string(output))
+		rel, err := ReleaseEnvironment(config)
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println(string(rel))
+			return
+		}
+		fmt.Println(string(rel))
 		return
 	case commands[3].Name:
 		now = true
@@ -133,13 +138,25 @@ func main() {
 				fmt.Println(err)
 			}
 		}
-		result, err := startBackup(config)
+		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
+		for _, base := range config.Bases {
+			timestamp := time.Now().Format("2006-01-02_15-04-05")
+			backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
+			result, err := backupBase(config, ibcmdPath, backupPathName, base)
+			if err != nil {
+				fmt.Println(err)
+				fmt.Println(string(result))
+				return
+			}
+			fmt.Println(string(result))
+		}
+		rel, err := ReleaseEnvironment(config)
 		if err != nil {
 			fmt.Println(err)
-			fmt.Println(string(result))
+			fmt.Println(string(rel))
 			return
 		}
-		fmt.Println(string(result))
+		fmt.Println(string(rel))
 		return
 	case commands[4].Name:
 		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[4].Name, commands[4].Description)
@@ -156,37 +173,38 @@ func main() {
 	}
 }
 
-// func currentModes(config *getconfig.Config) ([]string, error) {
-// 	var currentModes []string
-// 	for schedule, rules := range config.ScheduleSettings {
-// 		currentModes = append(currentModes, set.Schedule)
-// 	}
-// 	if len(currentModes) == 0 {
-// 		return nil, fmt.Errorf("не включено ни одно расписание в schedule_settings")
-// 	}
-// 	return currentModes, nil
-// }
+func curentMode(c *getconfig.Config, t time.Time) string {
+	if settings, ok := c.ScheduleSettings[constants.ScheduleMonthly]; ok {
+		isLastMonthDay := t.AddDate(0, 0, 1).Month() != t.Month()
+		for _, setDay := range settings.ScheduleDays {
+			if isLastMonthDay && setDay >= t.Day() {
+				return constants.ScheduleMonthly
+			} else if setDay == t.Day() {
+				return constants.ScheduleMonthly
+			}
+		}
+	}
+	if settings, ok := c.ScheduleSettings[constants.ScheduleWeekly]; ok {
+		for _, setDay := range settings.ScheduleDays {
+			if setDay == int(t.Weekday()) {
+				return constants.ScheduleWeekly
+			}
+		}
+	}
+	if settings, ok := c.ScheduleSettings[constants.ScheduleDaily]; ok {
+		for _, setDay := range settings.ScheduleDays {
+			if setDay == int(t.Weekday()) {
+				return constants.ScheduleDaily
+			}
+		}
+	}
+	return ""
+}
 
-func startBackup(config *getconfig.Config) ([]byte, error) {
+func backupBase(config *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base) ([]byte, error) {
 	var ibcmdArgs []string
 	var output []byte
 	var errs []error
-
-	ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
-	for _, base := range config.Bases {
-		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
-		result, err := backupCurentBase(config, ibcmdPath, backupPathName, base, ibcmdArgs, errs, output)
-		output = append(output, result...)
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return output, errors.Join(errs...)
-	}
-	return output, nil
-}
-
-func backupCurentBase(config *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base, ibcmdArgs []string, errs []error, output []byte) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	if base.Mode == "dbms" {
 		ibcmdArgs = []string{
@@ -214,6 +232,7 @@ func backupCurentBase(config *getconfig.Config, ibcmdPath, backupPathName string
 			if path, ok := config.MountPoints[base.DBName]; ok == false {
 				errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
 				cancel()
+				return output, errors.Join(errs...)
 			} else {
 				ibcmdArgs = append(ibcmdArgs, "--db-path="+path)
 			}
@@ -234,17 +253,30 @@ func backupCurentBase(config *getconfig.Config, ibcmdPath, backupPathName string
 		errs = append(errs, err)
 	}
 	output = append(output, cmdOutput...)
-	if strings.HasPrefix(base.DBDir, "//") {
-		cmd := exec.CommandContext(ctx, "umount", config.MountPoints[base.DBName])
-		cmdOutput, err := cmd.CombinedOutput()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", config.MountPoints[base.DBName], err, strings.TrimSpace(string(cmdOutput))))
+	cancel()
+	if len(errs) > 0 {
+		return output, errors.Join(errs...)
+	}
+	return output, nil
+}
+
+func ReleaseEnvironment(c *getconfig.Config) ([]byte, error) {
+	var errs []error
+	var output []byte
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	for _, base := range c.Bases {
+		if strings.HasPrefix(base.DBDir, "//") {
+			cmd := exec.CommandContext(ctx, "umount", c.MountPoints[base.DBName])
+			cmdOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось отмонтировать %s: %s: %s\n", c.MountPoints[base.DBName], err, strings.TrimSpace(string(cmdOutput))))
+			}
+			err = os.Remove(c.MountPoints[base.DBName])
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", c.MountPoints[base.DBName], err))
+			}
+			output = append(output, cmdOutput...)
 		}
-		err = os.Remove(config.MountPoints[base.DBName])
-		if err != nil {
-			errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", config.MountPoints[base.DBName], err))
-		}
-		output = append(output, cmdOutput...)
 	}
 	cancel()
 	if len(errs) > 0 {

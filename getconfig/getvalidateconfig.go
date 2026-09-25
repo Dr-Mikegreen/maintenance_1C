@@ -133,7 +133,7 @@ func getSecrets(c *Config, file string) error {
 	} else if info.IsDir() {
 		return fmt.Errorf("%s это каталог", file)
 	}
-	if runtime.GOOS != "Linux" {
+	if runtime.GOOS != "linux" {
 		perm := info.Mode().Perm()
 		if perm&0044 != 0 {
 			return fmt.Errorf("файл %s доступен для чтения не только владельцу (права: %o), исправьте через chmod 600", file, perm)
@@ -206,6 +206,19 @@ func (c *Config) ConfigValidate(now bool) error {
 			errs = append(errs, fmt.Errorf("в секции schedule_settings\n%w", err))
 		}
 		for schedule, rules := range c.ScheduleSettings {
+			if schedule != constants.ScheduleMonthly {
+				for _, day := range rules.ScheduleDays {
+					if day < 0 || day > 6 {
+						errs = append(errs, fmt.Errorf("в расписаниях %s и %s должны быть указаны дни 0-6, где 0 - воскресенье, 1-6 - ппонедельник-пятница", constants.ScheduleDaily, constants.ScheduleWeekly))
+					}
+				}
+			} else {
+				for _, day := range rules.ScheduleDays {
+					if day < 1 || day > 31 {
+						errs = append(errs, fmt.Errorf("в расписании %s должны быть указаны дни 1-31", constants.ScheduleMonthly))
+					}
+				}
+			}
 			if rules.DeleteOlder < 0 {
 				errs = append(errs, fmt.Errorf("%w для %s", ErrInvalid_DeleteOlder, schedule))
 			}
