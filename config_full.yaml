@@ -2,7 +2,7 @@ general:
   backups_path: "/mnt/storage/"
   ibcmd_path: "/opt/1cv8/x86_64/8.3.24.1548/" #Обязательно после каждого обновления платформы 1С исправлять на новый!
   log_path: "/home/backup/"
-  1c_stop: true                               #Останавливать службу сервера 1С. (рекомендуется, но не обязательно)
+  1c_stop: true                               #Останавливать службу сервера 1С на время выполнения функций программы. (рекомендуется, но не обязательно)
   time_to_start: "23:00"                      #Время для запуска утилиты. Используется только при работе как служба
   secrets_file: "/home/admins//go-projects/maintenance_1C/secrets.yaml"
   mount_path: "/mnt/"                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
@@ -21,7 +21,7 @@ schedule_settings:                            #Чтобы включить ра�
     - 3
     - 4
     - 5
-    delete_older: 20160                       #Сколько минут хранить ежедневные копии
+    delete_older: 20                          #Сколько часов хранить ежедневные копии
     maintenance_types:                        #Виды ежедневного обслуживания. Для PostgreSQL - ANALYZE, REINDEX, VACUUM, VACUUM_FULL. Для MSSQL - STATISTICS (UPDATE STATISTICS), INDEXES (REORGANIZE / REBUILD), INTEGRITY (DBCC CHECKDB)
       - STATISTICS
   weekly:

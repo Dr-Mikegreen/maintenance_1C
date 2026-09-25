@@ -90,6 +90,13 @@ func main() {
 			return
 		}
 		fmt.Printf("Cегодня работаем по расписанию %s\n", mode)
+		//Удалим старые файлы выгрузки
+		curentBackupPath := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir)
+		err = cleanupOldFiles(curentBackupPath, time.Duration(config.ScheduleSettings[mode].DeleteOlder)*time.Hour)
+		if err != nil {
+			fmt.Println(err)
+		}
+		//Выберем базы, которые включены в это расписание и выгрузим
 		var selectedDBs []getconfig.Base
 		for _, base := range config.Bases {
 			for _, schedule := range base.Schedules {
@@ -199,6 +206,36 @@ func curentMode(c *getconfig.Config, t time.Time) string {
 		}
 	}
 	return ""
+}
+
+func cleanupOldFiles(dir string, maxAge time.Duration) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("чтение каталога %s: %w", dir, err)
+	}
+	var errs []error
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("получение сведений о файле %s: %w", entry.Name(), err))
+			continue
+		}
+		if time.Since(info.ModTime()) > maxAge {
+			path := filepath.Join(dir, entry.Name())
+			if err := os.Remove(path); err != nil {
+				errs = append(errs, fmt.Errorf("удаление файла %s: %w", path, err))
+				continue
+			}
+			fmt.Println("удалён:", path)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("ошибки при очистке: %w", errors.Join(errs...))
+	}
+	return nil
 }
 
 func backupBase(config *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base) ([]byte, error) {

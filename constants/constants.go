@@ -3,7 +3,7 @@
 package constants
 
 const (
-	Version         string = "1.0.14"
+	Version         string = "1.0.16"
 	ScheduleDaily   string = "daily"
 	ScheduleWeekly  string = "weekly"
 	ScheduleMonthly string = "monthly"

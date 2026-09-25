@@ -12,7 +12,7 @@ server_settings:
   srv: "localhost"                            #имя или IP адрес
   port: 5433
 
-schedule_settings:
+schedule_settings:                            #Чтобы включить расписание, необходимо добавить нужный блок в эту секцию. Допустимы три вида блоков - daily, weekly, monthly
   daily:
     schedule_backup_dir: "daily"              #Каталог внутри backups_path, в который будут сохраняться ежедневные копии
     schedule_days:                            #Укажите номера дней недели, в которые должно срабатывать расписание, где 1-6 это понедельник-суббота, 0 - воскресенье
@@ -21,23 +21,23 @@ schedule_settings:
     - 3
     - 4
     - 5
-    delete_older: 20160                       #Сколько минут хранить ежедневные копии
+    delete_older: 1                          #Сколько часов хранить ежедневные копии
     maintenance_types:                        #Виды ежедневного обслуживания. Для PostgreSQL - ANALYZE, REINDEX, VACUUM, VACUUM_FULL. Для MSSQL - STATISTICS (UPDATE STATISTICS), INDEXES (REORGANIZE / REBUILD), INTEGRITY (DBCC CHECKDB)
-      - STATISTICS                            #Чтобы включить расписание, необходимо добавить нужный блок в эту секцию. Допустимы три вида блоков - daily, weekly, monthly
+      - STATISTICS
   weekly:
     schedule_backup_dir: "weekly"             #Каталог внутри backups_path, в который будут сохраняться еженедельные копии
     schedule_days:                            #Укажите номера дней недели, в которые должно срабатывать расписание, где 1-6 это понедельник-суббота, 0 - воскресенье. В указанные здесь дни, при совпадении, не будет выполняться расписание daily
-    - 5
-    delete_older: 90                          #Сколько дней хранить еженедельные копии
+    - 6
+    delete_older: 2160                        #Сколько часов хранить еженедельные копии
     maintenance_types:
       - STATISTICS
       - INTEGRITY
   monthly:
     schedule_backup_dir: "monthly"            #Каталог внутри backups_path, в который будут сохраняться ежемесячные копии
     schedule_days:                            #Укажите номера дней месяца, в которые должно срабатывать расписание. В указанные здесь дни, при совпадении, не будут выполняться расписания daily и weekly
-    - 25
+    - 15
     - 31                                      #Если указанного числа нет в текущем месяце, запуск выполняется в последний день месяца.
-    delete_older: 365                         #Сколько дней хранить ежемесячные копии
+    delete_older: 4392                        #Сколько часов хранить ежемесячные копии
     maintenance_types:
       - STATISTICS
       - INDEXES
