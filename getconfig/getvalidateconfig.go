@@ -18,17 +18,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// var ValidSchedules = []string{
-// 	"daily",
-// 	"weekly",
-// 	"monthly",
-// }
-
 type Config struct {
 	General          General                 `yaml:"general"`
 	ServerSettings   ServerSettings          `yaml:"server_settings"`
 	ScheduleSettings map[string]ScheduleRule `yaml:"schedule_settings"`
 	Bases            []Base                  `yaml:"bases"`
+	Advansed         Advansed                `yaml:"advansed"`
 	UtilName         string
 	MountPoints      map[string]string
 }
@@ -69,6 +64,10 @@ type Base struct {
 	ChkDB           bool     `yaml:"chkdb"`
 	ValidateRestore bool     `yaml:"validate_restore"`
 	Schedules       []string `yaml:"schedules"`
+}
+
+type Advansed struct {
+	CtxTimeout int `yaml:"ctx_timeout"`
 }
 
 // Ошибки конфигурации.
@@ -459,14 +458,14 @@ func PrepareEnvironment(c *Config) error {
 		if err != nil {
 			file.Close()
 			if err := os.Remove(file.Name()); err != nil {
-				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %w\n", file.Name(), err))
 			}
 			errs = append(errs, fmt.Errorf("не удалось записать данные во временный файл %s:\n%w", file.Name(), err))
 			return errors.Join(errs...)
 		}
 		if err := file.Close(); err != nil {
 			if err := os.Remove(file.Name()); err != nil {
-				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %w\n", file.Name(), err))
 			}
 			errs = append(errs, fmt.Errorf("не удалось закрыть временный файл %s:\n%w", file.Name(), err))
 			return errors.Join(errs...)
@@ -475,7 +474,7 @@ func PrepareEnvironment(c *Config) error {
 		_, err = exec.LookPath("mount.cifs")
 		if err != nil {
 			if err := os.Remove(file.Name()); err != nil {
-				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %v\n", file.Name(), err))
+				errs = append(errs, fmt.Errorf("не удалось удалить временный файл %s: %w\n", file.Name(), err))
 			}
 			errs = append(errs, fmt.Errorf("mount.cifs не найден: %w, проерьте установлена ли программа", err))
 			return errors.Join(errs...)
@@ -492,6 +491,9 @@ func PrepareEnvironment(c *Config) error {
 				output, err := cmd.CombinedOutput()
 				if err != nil {
 					errs = append(errs, fmt.Errorf("не удалось смонтировать %s: %w: %s", base.DBDir, err, strings.TrimSpace(string(output))))
+					if err := os.Remove(mountDir); err != nil {
+						errs = append(errs, fmt.Errorf("не удалось удалить каталог для монтирования базы %s: %w\n", file.Name(), err))
+					}
 					continue
 				}
 				err = checkPath(mountDir)

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maintenance1c/constants"
 	"maintenance1c/getconfig"
+	"maintenance1c/logs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +17,6 @@ import (
 	"strings"
 	"time"
 )
-
-var now bool = false
 
 type Command struct {
 	Name        string
@@ -51,17 +50,14 @@ func main() {
 		}
 		os.Args[1] = s
 	}
-	switch os.Args[1] {
-	case commands[0].Name:
-		for _, str := range commands {
-			fmt.Printf("%s 	- %s\n", str.Name, str.Description)
-		}
-		return
-	case commands[1].Name:
-		fmt.Println(constants.Version)
-		return
-	case commands[2].Name:
-		config, err := getconfig.LoadConfig("config.yaml", now)
+	var now bool = false
+	var config *getconfig.Config
+	if os.Args[1] == commands[3].Name {
+		now = true
+	}
+	if os.Args[1] == commands[2].Name || os.Args[1] == commands[3].Name {
+		var err error
+		config, err = getconfig.LoadConfig("config.yaml", now)
 		if config == nil && err != nil {
 			fmt.Println(err)
 			return
@@ -79,22 +75,58 @@ func main() {
 				fmt.Println(err)
 			}
 		}
+		logFileDate := time.Now().Format("2006-01-02")
+		logFile := filepath.Join(config.General.LogPath, logFileDate+".log")
+		file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Println("не удалось открыть лог-файл:", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		logs.Logger = logs.Startlog(file)
+		logs.Logger.Info("Программа запущена", "Версия", constants.Version)
+		fmt.Printf("Программа запущена. Версия %s\n", constants.Version)
+	}
+	switch os.Args[1] {
+	case commands[0].Name:
+		for _, str := range commands {
+			fmt.Printf("%s 	- %s\n", str.Name, str.Description)
+		}
+		return
+	case commands[1].Name:
+		fmt.Println(constants.Version)
+		return
+	case commands[2].Name:
+		logs.Logger.Info("Работа по расписанию")
 		if len(config.ScheduleSettings) == 0 {
+			logs.Logger.Error("Не включено ни одно расписание в schedule_settings")
 			fmt.Println("Не включено ни одно расписание в schedule_settings")
 			return
 		}
 		t := time.Now()
 		mode := curentMode(config, t)
 		if mode == "" {
+			logs.Logger.Warn("В настройках расписаний на сегодня действий не предусмотрено")
 			fmt.Println("На сегодня нет работы")
+			rel, err := ReleaseEnvironment(config)
+			if err != nil {
+				logs.Logger.Warn("Не удалось очистить окружение", "Предупреждение", err.Error()+" "+string(rel))
+				fmt.Printf("Не удалось очистить окружение: %s\n", err)
+				fmt.Println(string(rel))
+				return
+			}
+			logs.Logger.Info("Очищено окружение")
+			fmt.Println(string(rel))
 			return
 		}
+		logs.Logger.Info("На данный момент определено", "Расписание", mode)
 		fmt.Printf("Cегодня работаем по расписанию %s\n", mode)
 		//Удалим старые файлы выгрузки
 		if config.ScheduleSettings[mode].DeleteOlder > 0 {
 			curentBackupPath := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir)
-			err = cleanupOldFiles(curentBackupPath, time.Duration(config.ScheduleSettings[mode].DeleteOlder)*time.Hour)
+			err := cleanupOldFiles(curentBackupPath, time.Duration(config.ScheduleSettings[mode].DeleteOlder)*time.Hour)
 			if err != nil {
+				logs.Logger.Warn("Не удалось удалить устаревшие копии", "Предупреждение", curentBackupPath+" "+err.Error())
 				fmt.Println(err)
 			}
 		}
@@ -109,62 +141,56 @@ func main() {
 		}
 		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 		for _, base := range selectedDBs {
+			logs.Logger.Info("Начало работы с", "База", base.DBName)
+			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
 			timestamp := time.Now().Format("2006-01-02_15-04-05")
 			backupPathName := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir, base.DBName+"_"+timestamp)
 			result, err := backupBase(config, ibcmdPath, backupPathName, base)
 			if err != nil {
-				fmt.Println(err)
+				logs.Logger.Warn("Не удалось выгрузить базу", "Предупреждение", err.Error()+" "+string(result))
+				fmt.Printf("Не удалось выгрузить базу: %s\n", err)
 				fmt.Println(string(result))
-				return
+				continue
 			}
+			logs.Logger.Info("Выгружена база", "база", base.DBName, "результат", string(result))
 			fmt.Println(string(result))
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
-			fmt.Println(err)
+			logs.Logger.Warn("Не удалось очистить окружение", "Предупреждение", err.Error()+" "+string(rel))
+			fmt.Printf("Не удалось очистить окружение: %s\n", err)
 			fmt.Println(string(rel))
 			return
 		}
+		logs.Logger.Info("Очищено окружение")
 		fmt.Println(string(rel))
 		return
 	case commands[3].Name:
-		now = true
-		config, err := getconfig.LoadConfig("config.yaml", now)
-		if config == nil && err != nil {
-			fmt.Println(err)
-			return
-		} else if err != nil {
-			lost := 0
-			for _, base := range config.Bases {
-				if strings.HasPrefix(base.DBDir, "//") && len(config.MountPoints[base.DBName]) == 0 {
-					lost++
-				}
-			}
-			if lost == len(config.Bases) {
-				fmt.Println(err)
-				return
-			} else {
-				fmt.Println(err)
-			}
-		}
+		logs.Logger.Info("Запуск с ключом --now. Игнорируем расписание")
 		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
 		for _, base := range config.Bases {
+			logs.Logger.Info("Начало работы с", "База", base.DBName)
+			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
 			timestamp := time.Now().Format("2006-01-02_15-04-05")
 			backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
 			result, err := backupBase(config, ibcmdPath, backupPathName, base)
 			if err != nil {
-				fmt.Println(err)
+				logs.Logger.Warn("Не удалось выгрузить базу", "Предупреждение", err.Error()+" "+string(result))
+				fmt.Printf("Не удалось выгрузить базу: %s\n", err)
 				fmt.Println(string(result))
-				return
+				continue
 			}
+			logs.Logger.Info("Выгружена база", "база", base.DBName, "результат", string(result))
 			fmt.Println(string(result))
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
-			fmt.Println(err)
+			logs.Logger.Warn("Не удалось очистить окружение", "Предупреждение", err.Error()+" "+string(rel))
+			fmt.Printf("Не удалось очистить окружение: %s\n", err)
 			fmt.Println(string(rel))
 			return
 		}
+		logs.Logger.Info("Очищено окружение")
 		fmt.Println(string(rel))
 		return
 	case commands[4].Name:
@@ -231,7 +257,8 @@ func cleanupOldFiles(dir string, maxAge time.Duration) error {
 				errs = append(errs, fmt.Errorf("удаление файла %s: %w", path, err))
 				continue
 			}
-			fmt.Println("удалён:", path)
+			logs.Logger.Info("Удалён", "файл:", path)
+			fmt.Println("Удалён:", path)
 		}
 	}
 	if len(errs) > 0 {
@@ -240,19 +267,19 @@ func cleanupOldFiles(dir string, maxAge time.Duration) error {
 	return nil
 }
 
-func backupBase(config *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base) ([]byte, error) {
+func backupBase(c *getconfig.Config, ibcmdPath, backupPathName string, base getconfig.Base) ([]byte, error) {
 	var ibcmdArgs []string
 	var output []byte
 	var errs []error
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
 	if base.Mode == "dbms" {
 		ibcmdArgs = []string{
 			"infobase",
 			"dump",
-			"--dbms=" + config.ServerSettings.DBMS,
-			"--db-server=" + config.ServerSettings.Server + " port=" + strconv.Itoa(config.ServerSettings.Port),
-			"--db-user=" + config.ServerSettings.DBMSUser,
-			"--db-pwd=" + config.ServerSettings.DBMSPassword,
+			"--dbms=" + c.ServerSettings.DBMS,
+			"--db-server=" + c.ServerSettings.Server + " port=" + strconv.Itoa(c.ServerSettings.Port),
+			"--db-user=" + c.ServerSettings.DBMSUser,
+			"--db-pwd=" + c.ServerSettings.DBMSPassword,
 			"--db-name=" + base.DBName,
 		}
 		if base.User != "" {
@@ -268,7 +295,7 @@ func backupBase(config *getconfig.Config, ibcmdPath, backupPathName string, base
 			"dump",
 		}
 		if strings.HasPrefix(base.DBDir, "//") {
-			if path, ok := config.MountPoints[base.DBName]; ok == false {
+			if path, ok := c.MountPoints[base.DBName]; ok == false {
 				errs = append(errs, fmt.Errorf("база %s пропущена — сетевой каталог не был смонтирован", base.DBName))
 				cancel()
 				return output, errors.Join(errs...)
@@ -302,7 +329,7 @@ func backupBase(config *getconfig.Config, ibcmdPath, backupPathName string, base
 func ReleaseEnvironment(c *getconfig.Config) ([]byte, error) {
 	var errs []error
 	var output []byte
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
 	for _, base := range c.Bases {
 		if strings.HasPrefix(base.DBDir, "//") {
 			cmd := exec.CommandContext(ctx, "umount", c.MountPoints[base.DBName])

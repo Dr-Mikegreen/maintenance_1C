@@ -1,7 +1,7 @@
 general:
   backups_path: "/home/admins/backup/"
   ibcmd_path: "/opt/1cv8/x86_64/8.5.1.1529/"  #Обязательно после каждого обновления платформы 1С исправлять на новый!
-  log_path: "/home/admins/backup/"
+  log_path: "/home/admins/backup/log/"
   1c_stop: true                               #Останавливать службу сервера 1С на время выполнения функций программы. (рекомендуется, но не обязательно)
   time_to_start: "23:00"                      #Время для запуска утилиты. Используется только при работе как служба
   secrets_file: "/home/admins//go-projects/maintenance_1C/secrets.yaml"
@@ -27,8 +27,8 @@ schedule_settings:                            #Чтобы включить ра�
   weekly:
     schedule_backup_dir: "weekly"             #Каталог внутри backups_path, в который будут сохраняться еженедельные копии
     schedule_days:                            #Укажите номера дней недели, в которые должно срабатывать расписание, где 1-6 это понедельник-суббота, 0 - воскресенье. В указанные здесь дни, при совпадении, не будет выполняться расписание daily
-    - 6
-    delete_older: 2160                        #Сколько часов хранить еженедельные копии
+    - 0
+    delete_older: 1                        #Сколько часов хранить еженедельные копии
     maintenance_types:
       - STATISTICS
       - INTEGRITY
@@ -37,7 +37,7 @@ schedule_settings:                            #Чтобы включить ра�
     schedule_days:                            #Укажите номера дней месяца, в которые должно срабатывать расписание. В указанные здесь дни, при совпадении, не будут выполняться расписания daily и weekly
     - 15
     - 31                                      #Если указанного числа нет в текущем месяце, запуск выполняется в последний день месяца.
-    delete_older: 4392                        #Сколько часов хранить ежемесячные копии
+    delete_older: 1                        #Сколько часов хранить ежемесячные копии
     maintenance_types:
       - STATISTICS
       - INDEXES
@@ -67,3 +67,25 @@ bases:
       - daily
       - weekly
       - monthly
+
+# Advansed settings
+advansed:
+  ctx_timeout: 120                            #Таймаут в минутах, при истечении которго прервется выполнение выгрузки базы
+  postgres:
+    jobs: 2
+    vacuum_full:
+      enabled: false
+      min_bloat: 50
+      exclude_tables:
+        - ...
+    statement_timeout: 0
+    lock_timeout: 0
+    idle_in_transaction_session_timeout: 3600000
+
+  mssql:
+    index_maintenance:
+      reorganize_from: 10
+      rebuild_from: 30
+      min_pages: 1000
+    checkdb:
+      physical_only: false
