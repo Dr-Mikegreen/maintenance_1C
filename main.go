@@ -28,9 +28,6 @@ var commands = []Command{
 	{"--version", "Показать версию программы"},
 	{"run", "Запускает программу для работы по расписанию"},
 	{"run --now", "Выполняет заданные действия сразу игнорируя расписание"},
-	{"install", "Устанвливает программу как службу и добавляет в автозапуск. (Функуия в разработке)"},
-	{"uninstall", "Останавливает и удаляет установленную службу. (Функуия в разработке)"},
-	{"status", "Показывает сосояние службы. (Функуия в разработке)"},
 }
 
 func main() {
@@ -192,15 +189,6 @@ func main() {
 		}
 		logs.Logger.Info("Очищено окружение")
 		fmt.Println(string(rel))
-		return
-	case commands[4].Name:
-		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[4].Name, commands[4].Description)
-		return
-	case commands[5].Name:
-		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[5].Name, commands[5].Description)
-		return
-	case commands[6].Name:
-		fmt.Printf("Здесь скоро что-то будет %s 	- %s\n", commands[6].Name, commands[6].Description)
 		return
 	default:
 		fmt.Println("неверный аргумент")
