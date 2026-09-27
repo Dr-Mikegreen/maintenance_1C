@@ -1,0 +1,57 @@
+general:
+  backups_path: '/home/admins/backup/'
+  ibcmd_path: '/opt/1cv8/x86_64/8.5.1.1529/'  #Обязательно после каждого обновления платформы 1С исправлять на новый!
+  log_path: '/home/admins/backup/log/'
+  time_to_start:                              #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
+  secrets_file: '/home/admins//go-projects/maintenance_1C/secrets.yaml'
+  mount_path: '/mnt/'                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
+
+server_settings:
+  dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQL (пусто, если все базы файловые)
+  srv: "localhost"                            #имя или IP адрес
+  port: 5433
+
+schedule_settings:                            #Чтобы включить расписание, необходимо добавить нужный блок в эту секцию. Допустимы три вида блоков - daily, weekly, monthly
+  daily:
+    schedule_backup_dir: "daily"              #Каталог внутри backups_path, в который будут сохраняться ежедневные копии
+    schedule_days:                            #Укажите номера дней недели, в которые должно срабатывать расписание, где 1-6 это понедельник-суббота, 0 - воскресенье
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    delete_older: 1                           #Сколько часов хранить ежедневные копии
+  weekly:
+    schedule_backup_dir: "weekly"
+    schedule_days:
+    - 6
+    delete_older: 1
+  monthly:
+    schedule_backup_dir: "monthly"
+    schedule_days:
+    - 27
+    - 31                                      #Если указанного числа нет в текущем месяце, запуск выполняется в последний день месяца.
+    delete_older: 1
+
+bases:
+  - mode: "file"
+    dbdir: '//172.30.1.11/TestFileDB/'        #При работе из Linux сетевые пути поддерживаются, если установлена cifs-utils. При работе из Windows сетевые пути поддерживаются нативно
+    dbname: "filedb01"                        #Для файловых баз нужно только для формирования имени резервной копии
+    schedules:                                #В каких расписаниях участвует эта БД
+      - weekly
+  - mode: "file"
+    dbdir: '/home/admins/testfiledb/'
+    dbname: "filedb02"
+    schedules:
+      - weekly
+      - monthly
+  - mode: "dbms"
+    dbname: "test01"
+    schedules:
+      - daily
+      - weekly
+      - monthly
+
+# Advansed settings
+advansed:
+  ctx_timeout: 120                            #Таймаут в минутах, при истечении которого прервется выполнение выгрузки базы
