@@ -141,7 +141,7 @@ func main() {
 			logs.Logger.Info("Начало работы с", "База", base.DBName)
 			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
 			timestamp := time.Now().Format("2006-01-02_15-04-05")
-			backupPathName := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir, base.DBName+"_"+timestamp)
+			backupPathName := filepath.Join(config.General.BackupsPath, config.ScheduleSettings[mode].ScheduleBackupDir, base.DBName+"_"+timestamp+".dt")
 			result, err := backupBase(config, ibcmdPath, backupPathName, base)
 			if err != nil {
 				logs.Logger.Warn("Не удалось выгрузить базу", "Предупреждение", err.Error()+" "+string(result))
@@ -169,7 +169,7 @@ func main() {
 			logs.Logger.Info("Начало работы с", "База", base.DBName)
 			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
 			timestamp := time.Now().Format("2006-01-02_15-04-05")
-			backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp)
+			backupPathName := filepath.Join(config.General.BackupsPath, base.DBName+"_"+timestamp+".dt")
 			result, err := backupBase(config, ibcmdPath, backupPathName, base)
 			if err != nil {
 				logs.Logger.Warn("Не удалось выгрузить базу", "Предупреждение", err.Error()+" "+string(result))
