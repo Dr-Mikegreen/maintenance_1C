@@ -2,7 +2,6 @@ general:
   backups_path: "/home/admins/backup/"
   ibcmd_path: "/opt/1cv8/x86_64/8.5.1.1529/"  #Обязательно после каждого обновления платформы 1С исправлять на новый!
   log_path: "/home/admins/backup/log/"
-  1c_stop: true                               #Останавливать службу сервера 1С на время выполнения функций программы. (рекомендуется, но не обязательно)
   time_to_start: ""                           #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
   secrets_file: "/home/admins//go-projects/maintenance_1C/secrets.yaml"
   mount_path: "/mnt/"                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
@@ -21,48 +20,33 @@ schedule_settings:                            #Чтобы включить ра�
     - 3
     - 4
     - 5
-    delete_older: 1                          #Сколько часов хранить ежедневные копии
-    maintenance_types:                        #Виды ежедневного обслуживания. Для PostgreSQL - ANALYZE, REINDEX, VACUUM, VACUUM_FULL. Для MSSQL - STATISTICS (UPDATE STATISTICS), INDEXES (REORGANIZE / REBUILD), INTEGRITY (DBCC CHECKDB)
-      - STATISTICS
+    delete_older: 1                           #Сколько часов хранить ежедневные копии
   weekly:
-    schedule_backup_dir: "weekly"             #Каталог внутри backups_path, в который будут сохраняться еженедельные копии
-    schedule_days:                            #Укажите номера дней недели, в которые должно срабатывать расписание, где 1-6 это понедельник-суббота, 0 - воскресенье. В указанные здесь дни, при совпадении, не будет выполняться расписание daily
-    - 0
-    delete_older: 1                        #Сколько часов хранить еженедельные копии
-    maintenance_types:
-      - STATISTICS
-      - INTEGRITY
+    schedule_backup_dir: "weekly"
+    schedule_days:
+    - 6
+    delete_older: 1
   monthly:
-    schedule_backup_dir: "monthly"            #Каталог внутри backups_path, в который будут сохраняться ежемесячные копии
-    schedule_days:                            #Укажите номера дней месяца, в которые должно срабатывать расписание. В указанные здесь дни, при совпадении, не будут выполняться расписания daily и weekly
+    schedule_backup_dir: "monthly"
+    schedule_days:
     - 15
     - 31                                      #Если указанного числа нет в текущем месяце, запуск выполняется в последний день месяца.
-    delete_older: 1                        #Сколько часов хранить ежемесячные копии
-    maintenance_types:
-      - STATISTICS
-      - INDEXES
-      - INTEGRITY
+    delete_older: 1
 
 bases:
   - mode: "file"
     dbdir: '//172.30.1.11/TestFileDB/'        #При работе из Linux сетевые пути поддерживаются, если установлена cifs-utils. При работе из Windows сетевые пути поддерживаются нативно
     dbname: "filedb01"                        #Для файловых баз нужно только для формирования имени резервной копии
-    chkdb: false                              #Выполнять проверку этой БД улилитой chdbfl.exe (только для Windows) или средствами СУБД по настройкам maintenance_types
-    validate_restore: false                   #Выполнять проверку резервной копии после выгрузки. Использовать с осторожностью, особенно для больших БД. Требуется значительно больше времени. Программа разворачивает временную пустую базу, восстанввливает данные из резервной копии, проверяет корректность загрузки, затем удаляет временную базу.
     schedules:                                #В каких расписаниях участвует эта БД
       - weekly
   - mode: "file"
     dbdir: '/home/admins/testfiledb/'
     dbname: "filedb02"
-    chkdb: false
-    validate_restore: false
     schedules:
       - weekly
       - monthly
   - mode: "dbms"
     dbname: "test01"
-    chkdb: false
-    validate_restore: false
     schedules:
       - daily
       - weekly
@@ -70,4 +54,4 @@ bases:
 
 # Advansed settings
 advansed:
-  ctx_timeout: 120                            #Таймаут в минутах, при истечении которго прервется выполнение выгрузки базы
+  ctx_timeout: 120                            #Таймаут в минутах, при истечении которого прервется выполнение выгрузки базы
