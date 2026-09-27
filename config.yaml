@@ -1,10 +1,10 @@
 general:
-  backups_path: "/home/admins/backup/"
-  ibcmd_path: "/opt/1cv8/x86_64/8.5.1.1529/"  #Обязательно после каждого обновления платформы 1С исправлять на новый!
-  log_path: "/home/admins/backup/log/"
-  time_to_start: ""                           #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
-  secrets_file: "/home/admins//go-projects/maintenance_1C/secrets.yaml"
-  mount_path: "/mnt/"                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
+  backups_path: '/home/admins/backup/'
+  ibcmd_path: '/opt/1cv8/x86_64/8.5.1.1529/'  #Обязательно после каждого обновления платформы 1С исправлять на новый!
+  log_path: '/home/admins/backup/log/'
+  time_to_start:                              #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
+  secrets_file: '/home/admins//go-projects/maintenance_1C/secrets.yaml'
+  mount_path: '/mnt/'                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
 
 server_settings:
   dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQL (пусто, если все базы файловые)
@@ -29,7 +29,7 @@ schedule_settings:                            #Чтобы включить ра�
   monthly:
     schedule_backup_dir: "monthly"
     schedule_days:
-    - 15
+    - 27
     - 31                                      #Если указанного числа нет в текущем месяце, запуск выполняется в последний день месяца.
     delete_older: 1
 

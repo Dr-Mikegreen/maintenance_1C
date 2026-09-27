@@ -188,15 +188,15 @@ func (c *Config) ConfigValidate(now bool) error {
 	if c.General.LogPath == "" {
 		errs = append(errs, ErrInvalid_LogPath)
 	}
-	if c.General.StopServise1C == nil {
-		errs = append(errs, ErrInvalid_StopServise1C)
-	}
-	if !now {
-		_, err := time.Parse("15:04", c.General.TimeToStart)
-		if err != nil {
-			errs = append(errs, ErrInvalid_TimeToStart)
-		}
-	}
+	// if c.General.StopServise1C == nil {
+	// 	errs = append(errs, ErrInvalid_StopServise1C)
+	// }
+	// if !now {
+	// 	_, err := time.Parse("15:04", c.General.TimeToStart)
+	// 	if err != nil {
+	// 		errs = append(errs, ErrInvalid_TimeToStart)
+	// 	}
+	// }
 	if c.ServerSettings.DBMS != "PostgreSQL" && c.ServerSettings.DBMS != "MSSQL" && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMS)
 	}
