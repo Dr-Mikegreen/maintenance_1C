@@ -1,11 +1,11 @@
 general:
-  backups_path: "/mnt/storage/"
-  ibcmd_path: "/opt/1cv8/x86_64/8.3.24.1548/" #Обязательно после каждого обновления платформы 1С исправлять на новый!
-  log_path: "/home/backup/"
+  backups_path: '/mnt/storage/''
+  ibcmd_path: '/opt/1cv8/x86_64/8.3.24.1548/' #Обязательно после каждого обновления платформы 1С исправлять на новый!
+  log_path: '/home/backup/''
   1c_stop: true                               #Останавливать службу сервера 1С на время выполнения функций программы. (рекомендуется, но не обязательно)
-  time_to_start: ""                           #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
-  secrets_file: "/home/admins//go-projects/maintenance_1C/secrets.yaml"
-  mount_path: "/mnt/"                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
+  time_to_start:                              #Время для запуска утилиты. Используется только при работе как служба (функция в разработке)
+  secrets_file: '/home/admins//go-projects/maintenance_1C/secrets.yaml'
+  mount_path: '/mnt/'                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
 
 server_settings:
   dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQL (пусто, если все базы файловые)

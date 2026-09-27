@@ -132,7 +132,7 @@ func getSecrets(c *Config, file string) error {
 	} else if info.IsDir() {
 		return fmt.Errorf("%s это каталог", file)
 	}
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS == "linux" {
 		perm := info.Mode().Perm()
 		if perm&0044 != 0 {
 			return fmt.Errorf("файл %s доступен для чтения не только владельцу (права: %o), исправьте через chmod 600", file, perm)
