@@ -422,6 +422,8 @@ advansed:
   - первичная проверка на нулевой размер файла;
   - проверка путем загрузки копии в тестовую информационную базу с последующим удалением тестовой базы.
 
+- Отправка уведомлений о результатах работы программы на почту и/или в мессенджер.
+
 - Обслуживание баз средствами СУБД:
   - **PostgreSQL:** `ANALYZE`, `REINDEX`, `VACUUM`, `VACUUM FULL`;
   - **MSSQL:** `STATISTICS` (`UPDATE STATISTICS`), `INDEXES` (`REORGANIZE` / `REBUILD`), `INTEGRITY` (`DBCC CHECKDB`).
@@ -430,6 +432,5 @@ advansed:
   - **Linux:** `systemd`;
   - **Windows:** Windows Service.
   
-  В режиме службы программа будет работать как процесс-демон
 
 Copyright (c) 2026 Михаил Попов
