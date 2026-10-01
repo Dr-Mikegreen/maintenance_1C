@@ -136,7 +136,8 @@ func main() {
 				}
 			}
 		}
-		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
+		basesForValidate := make(map[string]string)
+		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.IbcmdUtilName)
 		for _, base := range selectedDBs {
 			logs.Logger.Info("Начало работы с", "База", base.DBName)
 			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
@@ -145,12 +146,43 @@ func main() {
 			result, err := backupBase(config, ibcmdPath, backupPathName, base)
 			if err != nil {
 				logs.Logger.Warn("Не удалось выгрузить базу", "Предупреждение", err.Error()+" "+string(result))
-				fmt.Printf("Не удалось выгрузить базу: %s\n", err)
+				fmt.Printf("Не удалось выгрузить базу: %s\n", err) // Здесь нужно будет отправить уведомление
 				fmt.Println(string(result))
 				continue
 			}
-			logs.Logger.Info("Выгружена база", "база", base.DBName, "результат", string(result))
+			basesForValidate[base.DBName] = backupPathName
+			logs.Logger.Info("Выгружена база", "База", base.DBName, "Результат", string(result))
 			fmt.Println(string(result))
+		}
+		// Проверим копии на валидность
+		if len(basesForValidate) > 0 {
+			for _, base := range selectedDBs {
+				if base.ValidateRestore && len(basesForValidate[base.DBName]) != 0 {
+					logs.Logger.Info("Проверка выгруженной базы", "База", base.DBName)
+					fmt.Printf("Проверка выгруженной базы: %s\n", base.DBName)
+					info, err := os.Stat(basesForValidate[base.DBName])
+					if err != nil {
+						logs.Logger.Error("Ошибка получения свойств файла выгрузки", "Ошибка", err, "Файл", basesForValidate[base.DBName])
+						fmt.Printf("Ошибка получения свойств файла выгрузки: %s: %s", basesForValidate[base.DBName], err)
+						continue
+					}
+					if info.Size() > 2048 { //Проверка на "нулевой размер". Целый файл .dt физически не может быть меньше двух килобайт
+						result, err := validateRestore(config, ibcmdPath, basesForValidate[base.DBName], base)
+						if err != nil {
+							logs.Logger.Error("Копия не прошла проверку", "Ошибка", err.Error()+" "+string(result))
+							fmt.Println(string(result))
+							fmt.Printf("Не удалось: %s\n", err) // Здесь нужно будет отправить уведомление
+							continue
+						}
+						logs.Logger.Info("Успешная проверка", "База", base.DBName, "Результат", string(result))
+						fmt.Println(string(result))
+					} else {
+						logs.Logger.Error("Файл выгрузки слишком мал, возможно повреждён или неполный", "Ошибка", "Размер файла "+strconv.FormatInt(info.Size(), 10))
+						fmt.Printf("Файл выгрузки слишком мал (%d байт), возможно повреждён или неполный", info.Size()) // Здесь нужно будет отправить уведомление
+					}
+
+				}
+			}
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
@@ -164,7 +196,7 @@ func main() {
 		return
 	case commands[3].Name:
 		logs.Logger.Info("Запуск с ключом --now. Игнорируем расписание")
-		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.UtilName)
+		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.IbcmdUtilName)
 		for _, base := range config.Bases {
 			logs.Logger.Info("Начало работы с", "База", base.DBName)
 			fmt.Printf("Начало работы с базой: %s\n", base.DBName)
@@ -308,6 +340,101 @@ func backupBase(c *getconfig.Config, ibcmdPath, backupPathName string, base getc
 	}
 	output = append(output, cmdOutput...)
 	cancel()
+	if len(errs) > 0 {
+		return output, errors.Join(errs...)
+	}
+	return output, nil
+}
+
+func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base getconfig.Base) ([]byte, error) {
+	var ibcmdArgs []string
+	var output []byte
+	var errs []error
+	var dbPath string
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
+	if base.Mode == "dbms" {
+		ibcmdArgs = []string{
+			"infobase",
+			"restore",
+			"--create-database",
+			"--dbms=" + c.ServerSettings.DBMS,
+			"--db-server=" + c.ServerSettings.Server + " port=" + strconv.Itoa(c.ServerSettings.Port),
+			"--db-user=" + c.ServerSettings.DBMSUser,
+			"--db-pwd=" + c.ServerSettings.DBMSPassword,
+			"--db-name=" + constants.TmpTestdb,
+		}
+		if base.User != "" {
+			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		}
+		if base.Password != "" {
+			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		}
+		ibcmdArgs = append(ibcmdArgs, backupFileName)
+	} else {
+		ibcmdArgs = []string{
+			"infobase",
+			"restore",
+			"--create-database",
+		}
+		dbPath = filepath.Join(c.General.BackupsPath, constants.TmpTestdb)
+
+		ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
+		if base.User != "" {
+			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		}
+		if base.Password != "" {
+			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		}
+		ibcmdArgs = append(ibcmdArgs, backupFileName)
+	}
+	cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	output = append(output, cmdOutput...)
+	// Убрать за собой
+	if base.Mode == "dbms" && c.ServerSettings.DBMS == constants.ValidPGSQLName {
+		cmd := exec.CommandContext(
+			ctx,
+			c.DBMSUtil,
+			"-h", c.ServerSettings.Server,
+			"-p", strconv.Itoa(c.ServerSettings.Port),
+			"-U", c.ServerSettings.DBMSUser,
+			"-d", "postgres",
+			"-c", "DROP DATABASE IF EXISTS "+constants.TmpTestdb+" WITH (FORCE);",
+		)
+		cmd.Env = append(os.Environ(),
+			"PGPASSWORD="+c.ServerSettings.DBMSPassword,
+		)
+		cmdOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("DROP DATABASE failed: %w", err))
+		}
+		output = append(output, cmdOutput...)
+	} else if base.Mode == "dbms" && c.ServerSettings.DBMS == constants.ValidMSSQLName {
+		cmd := exec.CommandContext(
+			ctx,
+			c.DBMSUtil,
+			"-S", c.ServerSettings.Server+","+strconv.Itoa(c.ServerSettings.Port),
+			"-U", c.ServerSettings.DBMSUser,
+			"-Q", "ALTER DATABASE ["+constants.TmpTestdb+"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ["+constants.TmpTestdb+"];",
+		)
+		cmd.Env = append(os.Environ(),
+			"SQLCMDPASSWORD="+c.ServerSettings.DBMSPassword,
+		)
+		cmdOutput, err = cmd.CombinedOutput()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("DROP DATABASE failed: %w", err))
+		}
+		output = append(output, cmdOutput...)
+	}
+	cancel()
+	if dbPath != "" {
+		err = os.RemoveAll(dbPath)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("не удалось удалить каталог %s\n%w", dbPath, err))
+		}
+	}
 	if len(errs) > 0 {
 		return output, errors.Join(errs...)
 	}

@@ -24,7 +24,8 @@ type Config struct {
 	ScheduleSettings map[string]ScheduleRule `yaml:"schedule_settings"`
 	Bases            []Base                  `yaml:"bases"`
 	Advansed         Advansed                `yaml:"advansed"`
-	UtilName         string
+	IbcmdUtilName    string
+	DBMSUtil         string
 	MountPoints      map[string]string
 }
 
@@ -61,7 +62,6 @@ type Base struct {
 	DBName          string   `yaml:"dbname"`
 	User            string   `yaml:"user"`
 	Password        string   `yaml:"password"`
-	ChkDB           bool     `yaml:"chkdb"`
 	ValidateRestore bool     `yaml:"validate_restore"`
 	Schedules       []string `yaml:"schedules"`
 }
@@ -92,6 +92,7 @@ var ErrInvalid_DBDir = errors.New("не указан каталог файлов
 var ErrInvalid_DBName = errors.New("не указано имя базы данных")
 var Err_Schedules = errors.New("база не включена ни в одно расписание")
 var Invalid_Schedules = errors.New("неверно указаны расписания")
+var ErrInvalid_ctxTimeout = errors.New("недопустимое значение таймаута")
 
 func LoadConfig(file string, now bool) (*Config, error) {
 	data, err := os.ReadFile(file)
@@ -197,7 +198,7 @@ func (c *Config) ConfigValidate(now bool) error {
 	// 		errs = append(errs, ErrInvalid_TimeToStart)
 	// 	}
 	// }
-	if c.ServerSettings.DBMS != "PostgreSQL" && c.ServerSettings.DBMS != "MSSQL" && c.ServerSettings.DBMS != "" {
+	if c.ServerSettings.DBMS != constants.ValidPGSQLName && c.ServerSettings.DBMS != constants.ValidMSSQLName && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMS)
 	}
 	if !now {
@@ -271,6 +272,24 @@ func (c *Config) ConfigValidate(now bool) error {
 		if c.ServerSettings.DBMSPassword == "" {
 			errs = append(errs, ErrInvalid_DBMSPassword)
 		}
+		switch c.ServerSettings.DBMS {
+		case constants.ValidPGSQLName:
+			dbmsUtil, err := exec.LookPath("psql")
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось найти утилиту psql в PATH. Добавьте путь к psql в PATH и повторите попытку\n%w", err))
+			} else {
+				c.DBMSUtil = dbmsUtil
+			}
+		case constants.ValidMSSQLName:
+			dbmsUtil, err := exec.LookPath("sqlcmd")
+			if err != nil {
+				errs = append(errs, fmt.Errorf("не удалось найти утилиту sqlcmd в PATH. Добавьте путь к sqlcmd в PATH и повторите попытку\n%w", err))
+			} else {
+				c.DBMSUtil = dbmsUtil
+			}
+		default:
+			errs = append(errs, fmt.Errorf("не удается определить утилиту для работы с СУБД. Проверьте тип СУБД и другие настройки"))
+		}
 	}
 	if !dbms && c.ServerSettings.DBMS != "" {
 		errs = append(errs, ErrInvalid_DBMSfilled)
@@ -283,6 +302,9 @@ func (c *Config) ConfigValidate(now bool) error {
 		if c.General.NetUser == "" {
 			errs = append(errs, ErrInvalid_NetUser)
 		}
+	}
+	if c.Advansed.CtxTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("ошибка: %w ", ErrInvalid_ctxTimeout))
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -374,7 +396,7 @@ func (c *Config) EnvironmentValidate(now bool) error {
 		} else {
 			defer file.Close()
 		}
-		c.UtilName = name
+		c.IbcmdUtilName = name
 	case "windows":
 		name := "ibcmd.exe"
 		targetFile := filepath.Join(c.General.IbcmdPath, name)
@@ -384,7 +406,7 @@ func (c *Config) EnvironmentValidate(now bool) error {
 		} else {
 			defer file.Close()
 		}
-		c.UtilName = name
+		c.IbcmdUtilName = name
 	default:
 		errs = append(errs, fmt.Errorf("неподдерживаемая операционная система: %s", runtime.GOOS))
 	}

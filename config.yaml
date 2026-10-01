@@ -37,16 +37,21 @@ bases:
   - mode: "file"
     dbdir: '//172.30.1.11/TestFileDB/'        #При работе из Linux сетевые пути поддерживаются, если установлена cifs-utils. При работе из Windows сетевые пути поддерживаются нативно
     dbname: "filedb01"                        #Для файловых баз нужно только для формирования имени резервной копии
+    validate_restore: true                    #Выполнять проверку резервной копии после выгрузки. Использовать с осторожностью, особенно для больших БД. Требуется значительно больше времени. Программа разворачивает временную пустую базу, восстанввливает данные из резервной копии, проверяет корректность загрузки, затем удаляет временную базу.
     schedules:                                #В каких расписаниях участвует эта БД
+      - daily
       - weekly
   - mode: "file"
     dbdir: '/home/admins/testfiledb/'
     dbname: "filedb02"
+    validate_restore: true
     schedules:
+      - daily
       - weekly
       - monthly
   - mode: "dbms"
     dbname: "test01"
+    validate_restore: true
     schedules:
       - daily
       - weekly
