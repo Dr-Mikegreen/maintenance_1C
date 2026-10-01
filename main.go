@@ -196,6 +196,7 @@ func main() {
 		return
 	case commands[3].Name:
 		logs.Logger.Info("Запуск с ключом --now. Игнорируем расписание")
+		basesForValidate := make(map[string]string)
 		ibcmdPath := filepath.Join(config.General.IbcmdPath, config.IbcmdUtilName)
 		for _, base := range config.Bases {
 			logs.Logger.Info("Начало работы с", "База", base.DBName)
@@ -209,8 +210,39 @@ func main() {
 				fmt.Println(string(result))
 				continue
 			}
+			basesForValidate[base.DBName] = backupPathName
 			logs.Logger.Info("Выгружена база", "база", base.DBName, "результат", string(result))
 			fmt.Println(string(result))
+		}
+		// Проверим копии на валидность
+		if len(basesForValidate) > 0 {
+			for _, base := range config.Bases {
+				if base.ValidateRestore && len(basesForValidate[base.DBName]) != 0 {
+					logs.Logger.Info("Проверка выгруженной базы", "База", base.DBName)
+					fmt.Printf("Проверка выгруженной базы: %s\n", base.DBName)
+					info, err := os.Stat(basesForValidate[base.DBName])
+					if err != nil {
+						logs.Logger.Error("Ошибка получения свойств файла выгрузки", "Ошибка", err, "Файл", basesForValidate[base.DBName])
+						fmt.Printf("Ошибка получения свойств файла выгрузки: %s: %s", basesForValidate[base.DBName], err)
+						continue
+					}
+					if info.Size() > 2048 { //Проверка на "нулевой размер". Целый файл .dt физически не может быть меньше двух килобайт
+						result, err := validateRestore(config, ibcmdPath, basesForValidate[base.DBName], base)
+						if err != nil {
+							logs.Logger.Error("Копия не прошла проверку", "Ошибка", err.Error()+" "+string(result))
+							fmt.Println(string(result))
+							fmt.Printf("Не удалось: %s\n", err) // Здесь нужно будет отправить уведомление
+							continue
+						}
+						logs.Logger.Info("Успешная проверка", "База", base.DBName, "Результат", string(result))
+						fmt.Println(string(result))
+					} else {
+						logs.Logger.Error("Файл выгрузки слишком мал, возможно повреждён или неполный", "Ошибка", "Размер файла "+strconv.FormatInt(info.Size(), 10))
+						fmt.Printf("Файл выгрузки слишком мал (%d байт), возможно повреждён или неполный", info.Size()) // Здесь нужно будет отправить уведомление
+					}
+
+				}
+			}
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
