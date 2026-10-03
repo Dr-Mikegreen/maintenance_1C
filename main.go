@@ -403,12 +403,12 @@ func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base
 		} else {
 			ibcmdArgs = append(ibcmdArgs, "--db-server="+c.ServerSettings.Server+" port="+strconv.Itoa(c.ServerSettings.Port))
 		}
-		if base.User != "" {
-			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-		}
-		if base.Password != "" {
-			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-		}
+		// if base.User != "" {
+		// 	ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		// }
+		// if base.Password != "" {
+		// 	ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		// }
 		ibcmdArgs = append(ibcmdArgs, backupFileName)
 	} else {
 		ibcmdArgs = []string{
