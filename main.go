@@ -419,12 +419,12 @@ func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base
 		dbPath = filepath.Join(c.General.BackupsPath, constants.TmpTestdb)
 
 		ibcmdArgs = append(ibcmdArgs, "--db-path="+dbPath)
-		if base.User != "" {
-			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
-		}
-		if base.Password != "" {
-			ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
-		}
+		// if base.User != "" {
+		// 	ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
+		// }
+		// if base.Password != "" {
+		// 	ibcmdArgs = append(ibcmdArgs, "--password="+base.Password)
+		// }
 		ibcmdArgs = append(ibcmdArgs, backupFileName)
 	}
 	cmdOutput, err := runIbcmd(ctx, ibcmdPath, ibcmdArgs)
