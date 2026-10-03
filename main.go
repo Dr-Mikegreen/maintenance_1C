@@ -329,10 +329,14 @@ func backupBase(c *getconfig.Config, ibcmdPath, backupPathName string, base getc
 			"infobase",
 			"dump",
 			"--dbms=" + c.ServerSettings.DBMS,
-			"--db-server=" + c.ServerSettings.Server + " port=" + strconv.Itoa(c.ServerSettings.Port),
 			"--db-user=" + c.ServerSettings.DBMSUser,
 			"--db-pwd=" + c.ServerSettings.DBMSPassword,
 			"--db-name=" + base.DBName,
+		}
+		if c.ServerSettings.DBMS == constants.ValidMSSQLName {
+			ibcmdArgs = append(ibcmdArgs, "--db-server="+c.ServerSettings.Server+","+strconv.Itoa(c.ServerSettings.Port))
+		} else {
+			ibcmdArgs = append(ibcmdArgs, "--db-server="+c.ServerSettings.Server+" port="+strconv.Itoa(c.ServerSettings.Port))
 		}
 		if base.User != "" {
 			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)
@@ -390,10 +394,14 @@ func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base
 			"restore",
 			"--create-database",
 			"--dbms=" + c.ServerSettings.DBMS,
-			"--db-server=" + c.ServerSettings.Server + " port=" + strconv.Itoa(c.ServerSettings.Port),
 			"--db-user=" + c.ServerSettings.DBMSUser,
 			"--db-pwd=" + c.ServerSettings.DBMSPassword,
 			"--db-name=" + constants.TmpTestdb,
+		}
+		if c.ServerSettings.DBMS == constants.ValidMSSQLName {
+			ibcmdArgs = append(ibcmdArgs, "--db-server="+c.ServerSettings.Server+","+strconv.Itoa(c.ServerSettings.Port))
+		} else {
+			ibcmdArgs = append(ibcmdArgs, "--db-server="+c.ServerSettings.Server+" port="+strconv.Itoa(c.ServerSettings.Port))
 		}
 		if base.User != "" {
 			ibcmdArgs = append(ibcmdArgs, "--user="+base.User)

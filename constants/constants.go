@@ -3,7 +3,7 @@
 package constants
 
 const (
-	Version         string = "1.1.18" //Валидация выгруженных копий. Исправлены ошибки
+	Version         string = "1.1.19" //Исправлены ошибки подключения к MSSQLServer
 	ScheduleDaily   string = "daily"
 	ScheduleWeekly  string = "weekly"
 	ScheduleMonthly string = "monthly"
