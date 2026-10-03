@@ -78,7 +78,7 @@ var ErrInvalid_StopServise1C = errors.New("1c_stop должен быть \"true\
 var ErrInvalid_TimeToStart = errors.New("время запуска должно быть в формате \"чч:мм\"")
 var ErrInvalid_MountPath = errors.New("не указан каталог для монтирования сетевых файловых баз")
 var ErrInvalid_NetUser = errors.New("не указан пользователь для доступа к сетевым ресурсам")
-var ErrInvalid_DBMS = errors.New("тип СУБД может принимать значения \"PostgreSQL\" или \"MSSQL\" с учетом регистра или быть не заполненным")
+var ErrInvalid_DBMS error
 var ErrInvalid_DBMSempty = errors.New("тип СУБД не заполнен, однако в секции bases есть базы с режимом \"dbms\"")
 var ErrInvalid_DBMSfilled = errors.New("в секции bases нет баз с режимом \"dbms\", тип СУБД заполнять не нужно")
 var ErrInvalid_Server = errors.New("адрес/имя сервера не может быть пустым")
@@ -93,6 +93,10 @@ var ErrInvalid_DBName = errors.New("не указано имя базы данн
 var Err_Schedules = errors.New("база не включена ни в одно расписание")
 var Invalid_Schedules = errors.New("неверно указаны расписания")
 var ErrInvalid_ctxTimeout = errors.New("недопустимое значение таймаута")
+
+func init() {
+	ErrInvalid_DBMS = fmt.Errorf("тип СУБД может принимать значения \"%s\" или \"%s\" или быть не заполненным", constants.ValidPGSQLName, constants.ValidMSSQLName)
+}
 
 func LoadConfig(file string, now bool) (*Config, error) {
 	data, err := os.ReadFile(file)

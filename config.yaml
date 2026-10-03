@@ -7,7 +7,7 @@ general:
   mount_path: '/mnt/'                         #Каталог для временного монтирования сетевых файловых баз при работе из Linux  
 
 server_settings:
-  dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQL (пусто, если все базы файловые)
+  dbms: "PostgreSQL"                          #Может быть только PostgreSQL или MSSQLserver (пусто, если все базы файловые)
   srv: "localhost"                            #имя или IP адрес
   port: 5433
 

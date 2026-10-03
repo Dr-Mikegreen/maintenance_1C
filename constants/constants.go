@@ -8,6 +8,6 @@ const (
 	ScheduleWeekly  string = "weekly"
 	ScheduleMonthly string = "monthly"
 	ValidPGSQLName  string = "PostgreSQL"
-	ValidMSSQLName  string = "MSSQL"
+	ValidMSSQLName  string = "MSSQLServer"
 	TmpTestdb       string = "tmptestdb"
 )
