@@ -58,5 +58,5 @@ bases:
       - monthly
 
 # Advansed settings
-advansed:
+advanced:
   ctx_timeout: 120                            #Таймаут в минутах, при истечении которого прервется выполнение выгрузки базы

@@ -323,7 +323,7 @@ func backupBase(c *getconfig.Config, ibcmdPath, backupPathName string, base getc
 	var ibcmdArgs []string
 	var output []byte
 	var errs []error
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advanced.CtxTimeout)*time.Minute)
 	if base.Mode == "dbms" {
 		ibcmdArgs = []string{
 			"infobase",
@@ -387,7 +387,7 @@ func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base
 	var output []byte
 	var errs []error
 	var dbPath string
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advanced.CtxTimeout)*time.Minute)
 	if base.Mode == "dbms" {
 		ibcmdArgs = []string{
 			"infobase",
@@ -484,7 +484,7 @@ func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base
 func ReleaseEnvironment(c *getconfig.Config) ([]byte, error) {
 	var errs []error
 	var output []byte
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advansed.CtxTimeout)*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.Advanced.CtxTimeout)*time.Minute)
 	for _, base := range c.Bases {
 		if strings.HasPrefix(base.DBDir, "//") {
 			cmd := exec.CommandContext(ctx, "umount", c.MountPoints[base.DBName])

@@ -23,7 +23,7 @@ type Config struct {
 	ServerSettings   ServerSettings          `yaml:"server_settings"`
 	ScheduleSettings map[string]ScheduleRule `yaml:"schedule_settings"`
 	Bases            []Base                  `yaml:"bases"`
-	Advansed         Advansed                `yaml:"advansed"`
+	Advanced         Advanced                `yaml:"advanced"`
 	IbcmdUtilName    string
 	DBMSUtil         string
 	MountPoints      map[string]string
@@ -66,7 +66,7 @@ type Base struct {
 	Schedules       []string `yaml:"schedules"`
 }
 
-type Advansed struct {
+type Advanced struct {
 	CtxTimeout int `yaml:"ctx_timeout"`
 }
 
@@ -307,7 +307,7 @@ func (c *Config) ConfigValidate(now bool) error {
 			errs = append(errs, ErrInvalid_NetUser)
 		}
 	}
-	if c.Advansed.CtxTimeout <= 0 {
+	if c.Advanced.CtxTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("ошибка: %w ", ErrInvalid_ctxTimeout))
 	}
 	if len(errs) > 0 {
