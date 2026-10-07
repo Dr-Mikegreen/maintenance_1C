@@ -67,7 +67,10 @@ bases:
       - weekly
       - monthly
 
-# Advansed DBMS's settings (optional)
+# Advanced settings
+advanced:
+  ctx_timeout: 120                            #Таймаут в минутах, при истечении которого прервется выполнение выгрузки базы
+
 postgres:
   jobs: 2
   vacuum_full:
