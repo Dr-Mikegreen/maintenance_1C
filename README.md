@@ -503,6 +503,7 @@ advansed:
   
 
 Публикация на [ИНФОСТАРТ](https://infostart.ru/public/2801252/)
+
 ![Логотип ИНФОСТАРТ](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)
 
 Copyright (c) 2026 Михаил Попов
