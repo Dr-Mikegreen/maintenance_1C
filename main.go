@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -30,6 +31,8 @@ var commands = []Command{
 	{"run --now", "Выполняет заданные действия сразу игнорируя расписание"},
 }
 
+var now bool = false
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("недостаточно аргументов для запуска")
@@ -47,7 +50,7 @@ func main() {
 		}
 		os.Args[1] = s
 	}
-	var now bool = false
+	// var now bool = false
 	var config *getconfig.Config
 	if os.Args[1] == commands[3].Name {
 		now = true
@@ -156,33 +159,7 @@ func main() {
 		}
 		// Проверим копии на валидность
 		if len(basesForValidate) > 0 {
-			for _, base := range selectedDBs {
-				if base.ValidateRestore && len(basesForValidate[base.DBName]) != 0 {
-					logs.Logger.Info("Проверка выгруженной базы", "База", base.DBName)
-					fmt.Printf("Проверка выгруженной базы: %s\n", base.DBName)
-					info, err := os.Stat(basesForValidate[base.DBName])
-					if err != nil {
-						logs.Logger.Error("Ошибка получения свойств файла выгрузки", "Ошибка", err, "Файл", basesForValidate[base.DBName])
-						fmt.Printf("Ошибка получения свойств файла выгрузки: %s: %s", basesForValidate[base.DBName], err)
-						continue
-					}
-					if info.Size() > 2048 { //Проверка на "нулевой размер". Целый файл .dt физически не может быть меньше двух килобайт
-						result, err := validateRestore(config, ibcmdPath, basesForValidate[base.DBName], base)
-						if err != nil {
-							logs.Logger.Error("Копия не прошла проверку", "Ошибка", err.Error()+" "+string(result))
-							fmt.Println(string(result))
-							fmt.Printf("Не удалось: %s\n", err) // Здесь нужно будет отправить уведомление
-							continue
-						}
-						logs.Logger.Info("Успешная проверка", "База", base.DBName, "Результат", string(result))
-						fmt.Println(string(result))
-					} else {
-						logs.Logger.Error("Файл выгрузки слишком мал, возможно повреждён или неполный", "Ошибка", "Размер файла "+strconv.FormatInt(info.Size(), 10))
-						fmt.Printf("Файл выгрузки слишком мал (%d байт), возможно повреждён или неполный", info.Size()) // Здесь нужно будет отправить уведомление
-					}
-
-				}
-			}
+			checkBacups(config, selectedDBs, basesForValidate, ibcmdPath)
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
@@ -216,33 +193,7 @@ func main() {
 		}
 		// Проверим копии на валидность
 		if len(basesForValidate) > 0 {
-			for _, base := range config.Bases {
-				if base.ValidateRestore && len(basesForValidate[base.DBName]) != 0 {
-					logs.Logger.Info("Проверка выгруженной базы", "База", base.DBName)
-					fmt.Printf("Проверка выгруженной базы: %s\n", base.DBName)
-					info, err := os.Stat(basesForValidate[base.DBName])
-					if err != nil {
-						logs.Logger.Error("Ошибка получения свойств файла выгрузки", "Ошибка", err, "Файл", basesForValidate[base.DBName])
-						fmt.Printf("Ошибка получения свойств файла выгрузки: %s: %s", basesForValidate[base.DBName], err)
-						continue
-					}
-					if info.Size() > 2048 { //Проверка на "нулевой размер". Целый файл .dt физически не может быть меньше двух килобайт
-						result, err := validateRestore(config, ibcmdPath, basesForValidate[base.DBName], base)
-						if err != nil {
-							logs.Logger.Error("Копия не прошла проверку", "Ошибка", err.Error()+" "+string(result))
-							fmt.Println(string(result))
-							fmt.Printf("Не удалось: %s\n", err) // Здесь нужно будет отправить уведомление
-							continue
-						}
-						logs.Logger.Info("Успешная проверка", "База", base.DBName, "Результат", string(result))
-						fmt.Println(string(result))
-					} else {
-						logs.Logger.Error("Файл выгрузки слишком мал, возможно повреждён или неполный", "Ошибка", "Размер файла "+strconv.FormatInt(info.Size(), 10))
-						fmt.Printf("Файл выгрузки слишком мал (%d байт), возможно повреждён или неполный", info.Size()) // Здесь нужно будет отправить уведомление
-					}
-
-				}
-			}
+			checkBacups(config, config.Bases, basesForValidate, ibcmdPath)
 		}
 		rel, err := ReleaseEnvironment(config)
 		if err != nil {
@@ -380,6 +331,74 @@ func backupBase(c *getconfig.Config, ibcmdPath, backupPathName string, base getc
 		return output, errors.Join(errs...)
 	}
 	return output, nil
+}
+
+func checkBacups(c *getconfig.Config, bases []getconfig.Base, basesForValidate map[string]string, ibcmdPath string) {
+	curentSizes := make(map[string]int64)
+	for _, base := range bases {
+		if base.ValidateRestore && len(basesForValidate[base.DBName]) != 0 {
+			logs.Logger.Info("Проверка выгруженной базы", "База", base.DBName)
+			fmt.Printf("Проверка выгруженной базы: %s\n", base.DBName)
+			info, err := os.Stat(basesForValidate[base.DBName])
+			if err != nil {
+				logs.Logger.Error("Ошибка получения свойств файла выгрузки", "Ошибка", err, "Файл", basesForValidate[base.DBName])
+				fmt.Printf("Ошибка получения свойств файла выгрузки: %s: %s", basesForValidate[base.DBName], err)
+				continue
+			}
+			if info.Size() > 2048 { //Проверка на "нулевой размер". Целый файл .dt физически не может быть меньше двух килобайт
+				err := checkRestoreSize(&c.General, base.DBName, info.Size())
+				if err != nil {
+					logs.Logger.Warn("При сравнении размера выгрузки с предыдущим файлом", "Предупреждение", err)
+					fmt.Printf("При сравнении размера выгрузки с предыдущим файлом: %s\n", err)
+				}
+				curentSizes[base.DBName] = info.Size()
+				result, err := validateRestore(c, ibcmdPath, basesForValidate[base.DBName], base)
+				if err != nil {
+					logs.Logger.Error("Копия не прошла проверку", "Ошибка", err.Error()+" "+string(result))
+					fmt.Println(string(result))
+					fmt.Printf("Не удалось: %s\n", err) // Здесь нужно будет отправить уведомление
+					continue
+				}
+				logs.Logger.Info("Успешная проверка", "База", base.DBName, "Результат", string(result))
+				fmt.Println(string(result))
+			} else {
+				logs.Logger.Error("Файл выгрузки слишком мал, возможно повреждён или неполный", "Ошибка", "Размер файла "+strconv.FormatInt(info.Size(), 10))
+				fmt.Printf("Файл выгрузки слишком мал (%d байт), возможно повреждён или неполный", info.Size()) // Здесь нужно будет отправить уведомление
+			}
+
+		}
+	}
+	data, err := json.MarshalIndent(curentSizes, "", "  ")
+	if err != nil {
+		logs.Logger.Error("Ошибка маршалинга данных для записи текущих размеров бэкапов")
+		fmt.Println("Ошибка маршалинга данных для записи текущих размеров бэкапов")
+	}
+	file := filepath.Join(c.General.LogPath, "previousSizes.json")
+	err = os.WriteFile(file, data, 0644)
+	if err != nil {
+		logs.Logger.Error("Ошибка записи файла с текущими размерами бэкапов", "Ошибка", err)
+		fmt.Printf("Ошибка записи файла с текущими размерами бэкапов %s", err)
+	}
+}
+
+func checkRestoreSize(c *getconfig.General, baseName string, fileSize int64) error {
+	file := filepath.Join(c.LogPath, "previousSizes.json")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("файл с размерами прошлых бэкапов не создан %w", err)
+		}
+		return fmt.Errorf("ошибка чтения файла с размерами прошлых бэкапов %w", err)
+	}
+	previousSizes := make(map[string]int64)
+	err = json.Unmarshal(data, &previousSizes)
+	if err != nil {
+		return fmt.Errorf("ошибка разбора json %w", err)
+	}
+	if previousSizes[baseName] > 0 && (float64(fileSize)/float64(previousSizes[baseName])*100) < 70.00 {
+		return fmt.Errorf("текущий файл выгрузки подозрительно меньше предыдущего бэкапа. Разница более 30 процентов")
+	}
+	return nil
 }
 
 func validateRestore(c *getconfig.Config, ibcmdPath, backupFileName string, base getconfig.Base) ([]byte, error) {
