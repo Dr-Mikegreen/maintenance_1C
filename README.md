@@ -15,9 +15,9 @@
 
 Скачать последнюю версию:
 
-[Для Linux](https://github.com/Dr-Mikegreen/maintenance_1C/releases/download/v1.1.19/backup-1c_linux_1.1.19.tar.xz)
+[Для Linux](https://github.com/Dr-Mikegreen/maintenance_1C/releases/download/v1.2.20/backup-1c_linux_1.2.20.tar.xz)
 
-[Для Windows](https://github.com/Dr-Mikegreen/maintenance_1C/releases/download/v1.1.19/backup-1c_win_1.1.19.zip)
+[Для Windows](https://github.com/Dr-Mikegreen/maintenance_1C/releases/download/v1.2.20/backup-1c_win_1.2.20.zip)
 
 ## Возможности
 
