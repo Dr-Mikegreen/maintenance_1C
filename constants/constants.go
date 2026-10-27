@@ -3,7 +3,7 @@
 package constants
 
 const (
-	Version         string = "1.2.20" //Добавлена проверка выгрузки путем сопоставления с размером предыдущей копии. Исправлены обнаруженные ошибки
+	Version         string = "1.2.21" //Исправлена ошибка - при неверных данных авторизации в базах 1С в secrets.yaml, программа "зависала" из-за того, что утилита ibcmd пыталась интерактивно запросить данные для авторизации.
 	ScheduleDaily   string = "daily"
 	ScheduleWeekly  string = "weekly"
 	ScheduleMonthly string = "monthly"

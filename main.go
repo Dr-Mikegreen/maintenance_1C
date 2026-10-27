@@ -527,6 +527,7 @@ func ReleaseEnvironment(c *getconfig.Config) ([]byte, error) {
 
 func runIbcmd(ctx context.Context, ibcmdPath string, ibcmdArgs []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, ibcmdPath, ibcmdArgs...)
+	cmd.Stdin = strings.NewReader("")
 	output, err := cmd.Output()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
